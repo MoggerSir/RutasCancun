@@ -1,0 +1,34 @@
+# Flutter/Dart
+.dart_tool/
+.packages
+.pub/
+build/
+coverage/
+.flutter-plugins
+.flutter-plugins-dependencies
+
+# IDE y sistema
+.idea/
+.vscode/
+*.iml
+.DS_Store
+*.log
+
+# Secretos y configuración local
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+**/key.properties
+*credentials*.json
+*service-account*.json
+secrets/
+
+# Paquetes firmados
+*.apk
+*.aab
+*.ipa
