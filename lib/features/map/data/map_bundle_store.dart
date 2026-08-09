@@ -4,11 +4,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 const _legacyBundleKey = 'map_bundle_json';
 const _legacyEtagKey = 'map_bundle_etag';
-const _bundleSchemaVersion = '2026-07-display-detour-cleanup-v2';
+const _bundleSchemaVersion = '2026-08-vehicle-type-v1';
 const _sqfliteThresholdBytes = 300 * 1024;
 
-String get _bundleKey => 'map_bundle_json::$_bundleSchemaVersion::${ApiConfig.baseUrl}';
-String get _etagKey => 'map_bundle_etag::$_bundleSchemaVersion::${ApiConfig.baseUrl}';
+String get _bundleKey =>
+    'map_bundle_json::$_bundleSchemaVersion::${ApiConfig.baseUrl}';
+String get _etagKey =>
+    'map_bundle_etag::$_bundleSchemaVersion::${ApiConfig.baseUrl}';
 
 class MapBundleStore {
   MapBundleStore._();

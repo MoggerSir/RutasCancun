@@ -9,6 +9,20 @@ final routesRepositoryProvider = Provider<RoutesRepository>((ref) {
   return RoutesRepository(ref.watch(dioProvider));
 });
 
+enum RouteVehicleType {
+  bus,
+  combi,
+  pochis;
+
+  static RouteVehicleType fromJson(Object? value) => switch (value) {
+        'combi' => RouteVehicleType.combi,
+        'pochis' => RouteVehicleType.pochis,
+        _ => RouteVehicleType.bus,
+      };
+
+  String get apiValue => name;
+}
+
 class RouteSummary {
   RouteSummary({
     required this.id,
@@ -17,6 +31,7 @@ class RouteSummary {
     required this.operator,
     this.photoUrl,
     this.coverage,
+    this.vehicleType = RouteVehicleType.bus,
   });
 
   factory RouteSummary.fromJson(Map<String, dynamic> j) => RouteSummary(
@@ -26,6 +41,7 @@ class RouteSummary {
         operator: j['operator'] as String? ?? '',
         photoUrl: j['photoUrl'] as String?,
         coverage: j['coverage'] as String?,
+        vehicleType: RouteVehicleType.fromJson(j['vehicleType']),
       );
 
   final String id;
@@ -34,6 +50,7 @@ class RouteSummary {
   final String operator;
   final String? photoUrl;
   final String? coverage;
+  final RouteVehicleType vehicleType;
 }
 
 class RouteDirectionInfo {
@@ -93,6 +110,7 @@ class RouteDetail {
     this.bounds,
     this.operatorName,
     this.operatorSlug,
+    this.vehicleType = RouteVehicleType.bus,
     this.fullPrecisionLoaded = true,
   });
 
@@ -119,6 +137,7 @@ class RouteDetail {
             (j['operator'] as Map<String, dynamic>?)?['name'] as String?,
         operatorSlug:
             (j['operator'] as Map<String, dynamic>?)?['slug'] as String?,
+        vehicleType: RouteVehicleType.fromJson(j['vehicleType']),
         fullPrecisionLoaded: true,
       );
 
@@ -151,6 +170,7 @@ class RouteDetail {
           (j['operator'] as Map<String, dynamic>?)?['name'] as String?,
       operatorSlug:
           (j['operator'] as Map<String, dynamic>?)?['slug'] as String?,
+      vehicleType: RouteVehicleType.fromJson(j['vehicleType']),
       fullPrecisionLoaded: false,
     );
   }
@@ -182,6 +202,7 @@ class RouteDetail {
   final RouteBounds? bounds;
   final String? operatorName;
   final String? operatorSlug;
+  final RouteVehicleType vehicleType;
   final bool fullPrecisionLoaded;
 
   int? get durationIda {
@@ -231,6 +252,7 @@ class RouteDetail {
         bounds: bounds,
         operatorName: operatorName,
         operatorSlug: operatorSlug,
+        vehicleType: vehicleType,
         fullPrecisionLoaded: fullPrecisionLoaded,
       );
 
@@ -252,6 +274,7 @@ class RouteDetail {
         bounds: display.bounds ?? bounds,
         operatorName: operatorName,
         operatorSlug: operatorSlug,
+        vehicleType: vehicleType,
         fullPrecisionLoaded: true,
       );
 }
@@ -328,6 +351,7 @@ class RouteMapBundle {
         'operator': {'name': r.operatorName, 'slug': r.operatorSlug},
         'coverage': r.coverage,
         'photoUrl': r.photoUrl,
+        'vehicleType': r.vehicleType.apiValue,
         'bounds': r.bounds == null
             ? null
             : {

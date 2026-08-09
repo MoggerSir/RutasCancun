@@ -16,6 +16,8 @@ class MapBottomDock extends StatefulWidget {
     required this.routeColor,
     required this.onRouteTap,
     required this.onShowAll,
+    required this.vehicleFilter,
+    required this.onVehicleFilterChanged,
     required this.detailFor,
     required this.navAction,
     required this.onNavAction,
@@ -29,6 +31,8 @@ class MapBottomDock extends StatefulWidget {
   final Color Function(String code, int index) routeColor;
   final ValueChanged<String> onRouteTap;
   final VoidCallback onShowAll;
+  final RouteVehicleType? vehicleFilter;
+  final ValueChanged<RouteVehicleType?> onVehicleFilterChanged;
   final RouteDetail? Function(RouteSummary summary) detailFor;
   final MapNavAction? navAction;
   final ValueChanged<MapNavAction> onNavAction;
@@ -40,7 +44,7 @@ class MapBottomDock extends StatefulWidget {
   static const showAllButtonHeight = 54.0;
   static const navHeight = 64.0;
   static const tileHeight = 76.0;
-  static const maxListHeight = 236.0;
+  static const maxListHeight = 286.0;
 
   @override
   State<MapBottomDock> createState() => _MapBottomDockState();
@@ -72,12 +76,25 @@ class _MapBottomDockState extends State<MapBottomDock>
         _showNearbySection ? (_otherRoutes.isNotEmpty ? 52.0 : 28.0) : 0.0;
     final tileCount =
         _showNearbySection ? _listItemCount : widget.routes.length;
-    final raw = tileCount * MapBottomDock.tileHeight + sectionHeaders + 4;
+    const filtersHeight = 96.0;
+    final raw = tileCount * MapBottomDock.tileHeight +
+        sectionHeaders +
+        filtersHeight +
+        4;
     return raw.clamp(0, MapBottomDock.maxListHeight);
   }
 
   bool get _showNearbySection =>
-      widget.nearbyFilterActive && widget.nearbyRouteCodes.isNotEmpty;
+      widget.nearbyFilterActive &&
+      widget.routes.any(
+        (route) => widget.nearbyRouteCodes.contains(route.code),
+      );
+
+  bool get _showAllButton =>
+      widget.selectedCode != null ||
+      widget.nearbyFilterActive ||
+      widget.vehicleFilter != null ||
+      widget.navAction == MapNavAction.nightRoutes;
 
   List<RouteSummary> get _nearbyRoutes => widget.routes
       .where((r) => widget.nearbyRouteCodes.contains(r.code))
@@ -129,7 +146,12 @@ class _MapBottomDockState extends State<MapBottomDock>
   }
 
   List<Widget> _buildRouteListChildren() {
-    final children = <Widget>[];
+    final children = <Widget>[
+      _VehicleFilterBar(
+        selected: widget.vehicleFilter,
+        onChanged: widget.onVehicleFilterChanged,
+      ),
+    ];
 
     void addTile(RouteSummary r, {required bool isNearby}) {
       if (children.isNotEmpty) children.add(const SizedBox(height: 5));
@@ -218,9 +240,7 @@ class _MapBottomDockState extends State<MapBottomDock>
           builder: (context, _) {
             final listH = _listHeight * _expand.value;
             final totalH = MapBottomDock.headerHeight +
-                (widget.selectedCode != null
-                    ? MapBottomDock.showAllButtonHeight
-                    : 0) +
+                (_showAllButton ? MapBottomDock.showAllButtonHeight : 0) +
                 listH +
                 (_expand.value > 0.01 ? 1 : 0) +
                 MapBottomDock.navHeight +
@@ -340,7 +360,7 @@ class _MapBottomDockState extends State<MapBottomDock>
                         ),
                       ),
                     ),
-                    if (widget.selectedCode != null)
+                    if (_showAllButton)
                       SizedBox(
                         height: MapBottomDock.showAllButtonHeight,
                         child: Padding(
@@ -444,12 +464,8 @@ class _RouteTile extends StatelessWidget {
           child: Row(
             children: [
               Container(
-                width: summary.code.length <= 3
-                    ? 48
-                    : summary.code.length <= 6
-                        ? 58
-                        : 66,
-                height: 48,
+                width: 68,
+                height: 52,
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
                   color: color,
@@ -467,11 +483,13 @@ class _RouteTile extends StatelessWidget {
                   child: FittedBox(
                     fit: BoxFit.scaleDown,
                     child: Text(
-                      summary.code,
-                      maxLines: 1,
+                      _routeBadgeLabel(summary.code),
+                      maxLines: 2,
+                      textAlign: TextAlign.center,
                       style: const TextStyle(
                         fontWeight: FontWeight.w800,
-                        fontSize: 15,
+                        fontSize: 14,
+                        height: 0.94,
                         color: Colors.white,
                         letterSpacing: 0.1,
                       ),
@@ -534,6 +552,68 @@ class _RouteTile extends StatelessWidget {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+String _routeBadgeLabel(String code) {
+  final separator = code.indexOf('-');
+  if (separator <= 0 || separator == code.length - 1) return code;
+  final base = code.substring(0, separator);
+  final variant = code.substring(separator + 1).replaceAll('-', ' ');
+  return '$base\n$variant';
+}
+
+class _VehicleFilterBar extends StatelessWidget {
+  const _VehicleFilterBar({required this.selected, required this.onChanged});
+
+  final RouteVehicleType? selected;
+  final ValueChanged<RouteVehicleType?> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 91,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(2, 2, 2, 3),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                FilterChip(
+                  selected: selected == null,
+                  avatar: const Icon(Icons.route_rounded, size: 17),
+                  label: const Text('Todas'),
+                  onSelected: (_) => onChanged(null),
+                ),
+                const SizedBox(width: 7),
+                FilterChip(
+                  selected: selected == RouteVehicleType.bus,
+                  avatar: const Icon(Icons.directions_bus_rounded, size: 17),
+                  label: const Text('Camiones'),
+                  onSelected: (_) => onChanged(RouteVehicleType.bus),
+                ),
+                const SizedBox(width: 7),
+                FilterChip(
+                  selected: selected == RouteVehicleType.combi,
+                  avatar: const Icon(Icons.airport_shuttle_rounded, size: 17),
+                  label: const Text('Combis'),
+                  onSelected: (_) => onChanged(RouteVehicleType.combi),
+                ),
+              ],
+            ),
+            const SizedBox(height: 2),
+            const Tooltip(
+              message: 'Este tipo de transporte estará disponible después',
+              child: Chip(
+                avatar: Icon(Icons.local_taxi_rounded, size: 17),
+                label: Text('Pochis · Próximamente'),
+              ),
+            ),
+          ],
         ),
       ),
     );

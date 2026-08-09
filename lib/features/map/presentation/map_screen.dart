@@ -205,6 +205,7 @@ class _PremiumMapBodyState extends ConsumerState<_PremiumMapBody>
   final LayerHitNotifier<String> _polylineHitNotifier = ValueNotifier(null);
 
   String? _selectedCode;
+  RouteVehicleType? _vehicleFilter;
   bool _fitPending = true;
   bool _nightBoundsApplied = false;
   MapNavAction? _navAction;
@@ -366,7 +367,39 @@ class _PremiumMapBodyState extends ConsumerState<_PremiumMapBody>
           .where((r) => RouteServiceHours.matchesNightFilter(r.code))
           .toList();
     }
+    if (_vehicleFilter != null) {
+      routes =
+          routes.where((route) => route.vehicleType == _vehicleFilter).toList();
+    }
     return routes;
+  }
+
+  void _applyVehicleFilter(RouteVehicleType? type) {
+    final selectedStillVisible = _selectedCode == null ||
+        widget.routes.any(
+          (route) =>
+              route.code == _selectedCode &&
+              (type == null || route.vehicleType == type),
+        );
+    final count = type == null
+        ? widget.routes.length
+        : widget.routes.where((route) => route.vehicleType == type).length;
+    final label = switch (type) {
+      RouteVehicleType.bus => 'camión',
+      RouteVehicleType.combi => 'combi',
+      RouteVehicleType.pochis => 'pochi',
+      null => 'ruta',
+    };
+
+    setState(() {
+      _vehicleFilter = type;
+      if (!selectedStillVisible) _selectedCode = null;
+      _filterHint = type == null
+          ? null
+          : '$count ${count == 1 ? label : '${label}s'} en el mapa';
+      _fitPending = true;
+    });
+    _scheduleFitBounds();
   }
 
   Future<void> _loadMapBundle() async {
@@ -613,12 +646,9 @@ class _PremiumMapBodyState extends ConsumerState<_PremiumMapBody>
       _nearbyFilterActive = false;
       _showAllFarRoutes = true;
       _nearbyFallbackMessage = null;
+      _vehicleFilter = null;
     });
     _scheduleFitBounds();
-  }
-
-  void _toggleShowAllFar() {
-    setState(() => _showAllFarRoutes = !_showAllFarRoutes);
   }
 
   Future<void> _handleNavAction(MapNavAction action) async {
@@ -1246,11 +1276,16 @@ class _PremiumMapBodyState extends ConsumerState<_PremiumMapBody>
         if (kIsWeb && visual != RouteVisualState.selected) continue;
         final midIdx = _badgeIndexClosestToCenter(seg.points, center);
         final mid = seg.points[midIdx];
+        final hasVariant = summary.code.contains('-');
         markers.add(
           Marker(
             point: mid,
-            width: visual == RouteVisualState.selected ? 52 : 44,
-            height: visual == RouteVisualState.selected ? 30 : 26,
+            width: hasVariant
+                ? (visual == RouteVisualState.selected ? 78 : 68)
+                : (visual == RouteVisualState.selected ? 52 : 44),
+            height: hasVariant
+                ? (visual == RouteVisualState.selected ? 42 : 36)
+                : (visual == RouteVisualState.selected ? 30 : 26),
             alignment: Alignment.center,
             child: Opacity(
               opacity: alpha,
@@ -1287,7 +1322,7 @@ class _PremiumMapBodyState extends ConsumerState<_PremiumMapBody>
   @override
   Widget build(BuildContext context) {
     _syncVisualFade();
-    final flowSegments = kIsWeb ? const <FlowSegment>[] : _buildFlowSegments();
+    final flowSegments = _buildFlowSegments();
     final polylines = _buildPolylines();
     final mapMarkers = _buildMapMarkers();
     final startupSegments =
@@ -1326,10 +1361,13 @@ class _PremiumMapBodyState extends ConsumerState<_PremiumMapBody>
               onComplete: _onStartupAnimationComplete,
             ),
           ),
-        if (!kIsWeb && _startupAnimationDone && flowSegments.isNotEmpty)
+        if (_startupAnimationDone && flowSegments.isNotEmpty)
           Positioned.fill(
             child: RouteFlowOverlay(
-                controller: _mapController, segments: flowSegments),
+              controller: _mapController,
+              segments: flowSegments,
+              vehicleOnly: kIsWeb,
+            ),
           ),
         if (_isLoading) MapLoadingOverlay(message: _loadingMessage),
         SafeArea(
@@ -1370,16 +1408,6 @@ class _PremiumMapBodyState extends ConsumerState<_PremiumMapBody>
                     textAlign: TextAlign.center,
                     style:
                         const TextStyle(fontSize: 11, color: AppColors.accent),
-                  ),
-                ),
-              if (_nearbyFilterActive &&
-                  _startupAnimationDone &&
-                  !_showAllFarRoutes)
-                Padding(
-                  padding: const EdgeInsets.only(top: 6),
-                  child: ActionChip(
-                    label: const Text('Ver todas'),
-                    onPressed: _toggleShowAllFar,
                   ),
                 ),
               const SizedBox(height: 10),
@@ -1437,6 +1465,8 @@ class _PremiumMapBodyState extends ConsumerState<_PremiumMapBody>
               detailFor: _detailFor,
               onRouteTap: _focusRoute,
               onShowAll: _showAllRoutes,
+              vehicleFilter: _vehicleFilter,
+              onVehicleFilterChanged: _applyVehicleFilter,
               navAction: _navAction,
               onNavAction: _handleNavAction,
               nearbyRouteCodes: _nearbyRouteCodes,
