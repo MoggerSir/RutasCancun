@@ -1,11 +1,35 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:rutas_cancun/core/theme/app_colors.dart';
 
 ThemeData buildPremiumTheme() {
-  final titleFont = GoogleFonts.plusJakartaSans;
-  final bodyFont = GoogleFonts.inter;
+  TextStyle titleFont({
+    double? fontSize,
+    FontWeight? fontWeight,
+    double? letterSpacing,
+    Color? color,
+  }) =>
+      TextStyle(
+        fontFamily: 'Arial',
+        fontSize: fontSize,
+        fontWeight: fontWeight,
+        letterSpacing: letterSpacing,
+        color: color,
+      );
+
+  TextStyle bodyFont({
+    double? fontSize,
+    FontWeight? fontWeight,
+    Color? color,
+    double? height,
+  }) =>
+      TextStyle(
+        fontFamily: 'Arial',
+        fontSize: fontSize,
+        fontWeight: fontWeight,
+        color: color,
+        height: height,
+      );
 
   const scheme = ColorScheme.light(
     primary: AppColors.primary,
@@ -24,6 +48,7 @@ ThemeData buildPremiumTheme() {
   return ThemeData(
     useMaterial3: true,
     brightness: Brightness.light,
+    fontFamily: 'Arial',
     colorScheme: scheme,
     scaffoldBackgroundColor: AppColors.bg,
     appBarTheme: AppBarTheme(
@@ -56,8 +81,10 @@ ThemeData buildPremiumTheme() {
         color: AppColors.text,
       ),
       bodyLarge: bodyFont(fontSize: 16, color: AppColors.text, height: 1.45),
-      bodyMedium: bodyFont(fontSize: 14, color: AppColors.textMuted, height: 1.45),
-      bodySmall: bodyFont(fontSize: 12, color: AppColors.textMuted, height: 1.35),
+      bodyMedium:
+          bodyFont(fontSize: 14, color: AppColors.textMuted, height: 1.45),
+      bodySmall:
+          bodyFont(fontSize: 12, color: AppColors.textMuted, height: 1.35),
       labelLarge: bodyFont(
         fontSize: 14,
         fontWeight: FontWeight.w600,

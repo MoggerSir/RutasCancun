@@ -24,27 +24,45 @@ class RouteFlowOverlay extends StatefulWidget {
 
 class _RouteFlowOverlayState extends State<RouteFlowOverlay>
     with SingleTickerProviderStateMixin {
-  late Ticker _ticker;
+  Ticker? _ticker;
   double _dashOffset = 0;
   StreamSubscription<MapEvent>? _mapSub;
 
   @override
   void initState() {
     super.initState();
+    _syncTicker();
+    _mapSub = widget.controller.mapEventStream.listen((_) {
+      if (mounted && _hasAnimatedSegments) setState(() {});
+    });
+  }
+
+  bool get _hasAnimatedSegments => widget.segments.any((seg) => !seg.dimmed);
+
+  void _syncTicker() {
+    if (!_hasAnimatedSegments) {
+      _ticker?.dispose();
+      _ticker = null;
+      return;
+    }
+    if (_ticker != null) return;
     _ticker = createTicker((elapsed) {
       // Offset continuo — evita el salto al reiniciar AnimationController.repeat().
       _dashOffset = elapsed.inMicroseconds / 1e6 * 36;
       if (mounted) setState(() {});
     })
       ..start();
-    _mapSub = widget.controller.mapEventStream.listen((_) {
-      if (mounted) setState(() {});
-    });
+  }
+
+  @override
+  void didUpdateWidget(covariant RouteFlowOverlay oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _syncTicker();
   }
 
   @override
   void dispose() {
-    _ticker.dispose();
+    _ticker?.dispose();
     _mapSub?.cancel();
     super.dispose();
   }

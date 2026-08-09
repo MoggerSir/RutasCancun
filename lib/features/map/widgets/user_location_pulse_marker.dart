@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:rutas_cancun/core/theme/app_colors.dart';
 
 /// Punto GPS del usuario — centro verde con ondas de pulso suaves.
@@ -9,7 +10,8 @@ class UserLocationPulseMarker extends StatefulWidget {
   static const dotSize = 13.0;
 
   @override
-  State<UserLocationPulseMarker> createState() => _UserLocationPulseMarkerState();
+  State<UserLocationPulseMarker> createState() =>
+      _UserLocationPulseMarkerState();
 }
 
 class _UserLocationPulseMarkerState extends State<UserLocationPulseMarker>
@@ -17,40 +19,54 @@ class _UserLocationPulseMarkerState extends State<UserLocationPulseMarker>
   static const _ringCount = 3;
   static const _duration = Duration(milliseconds: 3000);
 
-  late final AnimationController _pulse;
+  AnimationController? _pulse;
 
   @override
   void initState() {
     super.initState();
-    _pulse = AnimationController(vsync: this, duration: _duration)..repeat();
+    if (!kIsWeb) {
+      _pulse = AnimationController(vsync: this, duration: _duration)..repeat();
+    }
   }
 
   @override
   void dispose() {
-    _pulse.dispose();
+    _pulse?.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    if (kIsWeb) {
+      return const SizedBox(
+        width: UserLocationPulseMarker.size,
+        height: UserLocationPulseMarker.size,
+        child: Center(child: _CenterDot(breathe: 1)),
+      );
+    }
+    final pulse = _pulse!;
     return SizedBox(
       width: UserLocationPulseMarker.size,
       height: UserLocationPulseMarker.size,
       child: AnimatedBuilder(
-        animation: _pulse,
+        animation: pulse,
         builder: (context, child) {
           return Stack(
             alignment: Alignment.center,
             clipBehavior: Clip.none,
             children: [
-              for (var i = 0; i < _ringCount; i++) _PulseRing(phase: (_pulse.value + i / _ringCount) % 1.0),
+              for (var i = 0; i < _ringCount; i++)
+                _PulseRing(phase: (pulse.value + i / _ringCount) % 1.0),
               child!,
             ],
           );
         },
-        child: _CenterDot(breathe: 0.5 + 0.08 * Curves.easeInOutSine.transform(
-          (_pulse.value * 2) % 1.0,
-        )),
+        child: _CenterDot(
+            breathe: 0.5 +
+                0.08 *
+                    Curves.easeInOutSine.transform(
+                      (pulse.value * 2) % 1.0,
+                    )),
       ),
     );
   }
