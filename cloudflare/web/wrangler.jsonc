@@ -1,0 +1,21 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "rutas-cancun-web",
+  "compatibility_date": "2026-08-08",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "routes": [
+    {
+      "pattern": "rutascancun.com/*",
+      "zone_name": "rutascancun.com"
+    },
+    {
+      "pattern": "www.rutascancun.com/*",
+      "zone_name": "rutascancun.com"
+    }
+  ],
+  "assets": {
+    "directory": "../../build/web",
+    "not_found_handling": "single-page-application"
+  }
+}
