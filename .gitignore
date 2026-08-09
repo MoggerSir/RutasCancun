@@ -4,6 +4,8 @@
 .pub/
 build/
 coverage/
+.wrangler/
+**/.wrangler/
 .flutter-plugins
 .flutter-plugins-dependencies
 
