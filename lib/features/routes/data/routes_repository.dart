@@ -9,6 +9,20 @@ final routesRepositoryProvider = Provider<RoutesRepository>((ref) {
   return RoutesRepository(ref.watch(dioProvider));
 });
 
+enum RouteVehicleType {
+  bus,
+  combi,
+  pochis;
+
+  static RouteVehicleType fromJson(Object? value) => switch (value) {
+        'combi' => RouteVehicleType.combi,
+        'pochis' => RouteVehicleType.pochis,
+        _ => RouteVehicleType.bus,
+      };
+
+  String get apiValue => name;
+}
+
 class RouteSummary {
   RouteSummary({
     required this.id,
@@ -17,6 +31,7 @@ class RouteSummary {
     required this.operator,
     this.photoUrl,
     this.coverage,
+    this.vehicleType = RouteVehicleType.bus,
   });
 
   factory RouteSummary.fromJson(Map<String, dynamic> j) => RouteSummary(
@@ -26,6 +41,7 @@ class RouteSummary {
         operator: j['operator'] as String? ?? '',
         photoUrl: j['photoUrl'] as String?,
         coverage: j['coverage'] as String?,
+        vehicleType: RouteVehicleType.fromJson(j['vehicleType']),
       );
 
   final String id;
@@ -34,6 +50,7 @@ class RouteSummary {
   final String operator;
   final String? photoUrl;
   final String? coverage;
+  final RouteVehicleType vehicleType;
 }
 
 class RouteDirectionInfo {
@@ -93,6 +110,7 @@ class RouteDetail {
     this.bounds,
     this.operatorName,
     this.operatorSlug,
+    this.vehicleType = RouteVehicleType.bus,
     this.fullPrecisionLoaded = true,
   });
 
@@ -119,6 +137,7 @@ class RouteDetail {
             (j['operator'] as Map<String, dynamic>?)?['name'] as String?,
         operatorSlug:
             (j['operator'] as Map<String, dynamic>?)?['slug'] as String?,
+        vehicleType: RouteVehicleType.fromJson(j['vehicleType']),
         fullPrecisionLoaded: true,
       );
 
@@ -151,6 +170,7 @@ class RouteDetail {
           (j['operator'] as Map<String, dynamic>?)?['name'] as String?,
       operatorSlug:
           (j['operator'] as Map<String, dynamic>?)?['slug'] as String?,
+      vehicleType: RouteVehicleType.fromJson(j['vehicleType']),
       fullPrecisionLoaded: false,
     );
   }
@@ -182,6 +202,7 @@ class RouteDetail {
   final RouteBounds? bounds;
   final String? operatorName;
   final String? operatorSlug;
+  final RouteVehicleType vehicleType;
   final bool fullPrecisionLoaded;
 
   int? get durationIda {
@@ -231,6 +252,7 @@ class RouteDetail {
         bounds: bounds,
         operatorName: operatorName,
         operatorSlug: operatorSlug,
+        vehicleType: vehicleType,
         fullPrecisionLoaded: fullPrecisionLoaded,
       );
 
@@ -252,6 +274,7 @@ class RouteDetail {
         bounds: display.bounds ?? bounds,
         operatorName: operatorName,
         operatorSlug: operatorSlug,
+        vehicleType: vehicleType,
         fullPrecisionLoaded: true,
       );
 }
@@ -328,6 +351,7 @@ class RouteMapBundle {
         'operator': {'name': r.operatorName, 'slug': r.operatorSlug},
         'coverage': r.coverage,
         'photoUrl': r.photoUrl,
+        'vehicleType': r.vehicleType.apiValue,
         'bounds': r.bounds == null
             ? null
             : {
@@ -394,6 +418,37 @@ class SearchResult {
   final String disclaimer;
 }
 
+class PlaceSuggestion {
+  PlaceSuggestion({
+    required this.id,
+    required this.label,
+    required this.secondaryLabel,
+    required this.lat,
+    required this.lng,
+  });
+
+  factory PlaceSuggestion.fromJson(Map<String, dynamic> json) =>
+      PlaceSuggestion(
+        id: json['id'] as String,
+        label: json['label'] as String,
+        secondaryLabel: json['secondaryLabel'] as String? ?? '',
+        lat: (json['lat'] as num).toDouble(),
+        lng: (json['lng'] as num).toDouble(),
+      );
+
+  final String id;
+  final String label;
+  final String secondaryLabel;
+  final double lat;
+  final double lng;
+
+  Map<String, dynamic> toPoint() => {
+        'label': label,
+        'lat': lat,
+        'lng': lng,
+      };
+}
+
 class JourneyLeg {
   JourneyLeg({
     required this.routeId,
@@ -402,6 +457,10 @@ class JourneyLeg {
     required this.boardStop,
     required this.alightStop,
     required this.distanceKm,
+    required this.direction,
+    required this.boardPoint,
+    required this.alightPoint,
+    required this.geometry,
   });
 
   factory JourneyLeg.fromJson(Map<String, dynamic> json) => JourneyLeg(
@@ -411,6 +470,18 @@ class JourneyLeg {
         boardStop: json['boardStop'] as String,
         alightStop: json['alightStop'] as String,
         distanceKm: (json['distanceKm'] as num).toDouble(),
+        direction: json['direction'] as String? ?? 'ida',
+        boardPoint: JourneyPoint.fromJson(
+          json['boardPoint'] as Map<String, dynamic>?,
+        ),
+        alightPoint: JourneyPoint.fromJson(
+          json['alightPoint'] as Map<String, dynamic>?,
+        ),
+        geometry: (json['geometry'] as List? ?? const [])
+            .map((point) =>
+                JourneyPoint.fromJson(point as Map<String, dynamic>?))
+            .whereType<JourneyPoint>()
+            .toList(),
       );
 
   final String routeId;
@@ -419,6 +490,24 @@ class JourneyLeg {
   final String boardStop;
   final String alightStop;
   final double distanceKm;
+  final String direction;
+  final JourneyPoint? boardPoint;
+  final JourneyPoint? alightPoint;
+  final List<JourneyPoint> geometry;
+}
+
+class JourneyPoint {
+  const JourneyPoint({required this.lat, required this.lng});
+
+  static JourneyPoint? fromJson(Map<String, dynamic>? json) {
+    final lat = json?['lat'];
+    final lng = json?['lng'];
+    if (lat is! num || lng is! num) return null;
+    return JourneyPoint(lat: lat.toDouble(), lng: lng.toDouble());
+  }
+
+  final double lat;
+  final double lng;
 }
 
 class JourneyOption {
@@ -583,6 +672,18 @@ class RoutesRepository {
       },
     });
     return SearchResult.fromJson(res.data as Map<String, dynamic>);
+  }
+
+  Future<List<PlaceSuggestion>> searchPlaces(String query) async {
+    final clean = query.trim();
+    if (clean.length < 3) return const [];
+    final response = await _dio.get<List<dynamic>>(
+      '/routes/lookup/places',
+      queryParameters: {'q': clean},
+    );
+    return (response.data ?? const [])
+        .map((item) => PlaceSuggestion.fromJson(item as Map<String, dynamic>))
+        .toList();
   }
 
   Future<void> submitReport({

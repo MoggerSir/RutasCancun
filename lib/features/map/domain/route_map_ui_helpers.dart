@@ -2,7 +2,10 @@ import 'package:rutas_cancun/features/routes/data/routes_repository.dart';
 
 String shortStopLabel(String name) {
   var clean = name.split('(').first.trim();
-  clean = clean.replaceAll(RegExp(r'^(Inicio|Fin)\s+ida\s*', caseSensitive: false), '');
+  clean = clean.replaceAll(
+    RegExp(r'^(Inicio|Fin|Retorno)(\s+ida)?\s*[·:-]?\s*', caseSensitive: false),
+    '',
+  );
   if (clean.length > 22) return '${clean.substring(0, 20)}…';
   return clean.isEmpty ? name : clean;
 }
@@ -10,7 +13,16 @@ String shortStopLabel(String name) {
 String routeCorridorLabel(RouteDetail? detail) {
   if (detail == null || detail.stops.isEmpty) return 'Recorrido validado';
   if (detail.stops.length >= 2) {
-    return '${shortStopLabel(detail.stops.first.name)} → ${shortStopLabel(detail.stops.last.name)}';
+    final first = shortStopLabel(detail.stops.first.name);
+    var destination = shortStopLabel(detail.stops.last.name);
+    // Muchas rutas de Cancún son circuitos: el último punto vuelve a la
+    // misma base. En ese caso mostramos el corredor opuesto del recorrido,
+    // no una etiqueta engañosa del tipo "Base → Base".
+    if (first.toLowerCase() == destination.toLowerCase() &&
+        detail.stops.length >= 3) {
+      destination = shortStopLabel(detail.stops[detail.stops.length ~/ 2].name);
+    }
+    return '$first → $destination';
   }
   return shortStopLabel(detail.stops.first.name);
 }

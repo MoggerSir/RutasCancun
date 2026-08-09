@@ -7,16 +7,18 @@ import 'package:flutter/scheduler.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 
-/// Capa de flujo continuo — solo destellos sobre la polilínea (sin duplicar la línea base).
+/// Capa ligera de flujo y vehículo sobre la polilínea seleccionada.
 class RouteFlowOverlay extends StatefulWidget {
   const RouteFlowOverlay({
     super.key,
     required this.controller,
     required this.segments,
+    this.vehicleOnly = false,
   });
 
   final MapController controller;
   final List<FlowSegment> segments;
+  final bool vehicleOnly;
 
   @override
   State<RouteFlowOverlay> createState() => _RouteFlowOverlayState();
@@ -26,6 +28,7 @@ class _RouteFlowOverlayState extends State<RouteFlowOverlay>
     with SingleTickerProviderStateMixin {
   Ticker? _ticker;
   double _dashOffset = 0;
+  Duration _lastFrame = Duration.zero;
   StreamSubscription<MapEvent>? _mapSub;
 
   @override
@@ -47,6 +50,10 @@ class _RouteFlowOverlayState extends State<RouteFlowOverlay>
     }
     if (_ticker != null) return;
     _ticker = createTicker((elapsed) {
+      // 30 fps son suficientes para un vehículo pequeño y reducen a la
+      // mitad los repaints del mapa, especialmente importante en web.
+      if (elapsed - _lastFrame < const Duration(milliseconds: 33)) return;
+      _lastFrame = elapsed;
       // Offset continuo — evita el salto al reiniciar AnimationController.repeat().
       _dashOffset = elapsed.inMicroseconds / 1e6 * 36;
       if (mounted) setState(() {});
@@ -78,6 +85,7 @@ class _RouteFlowOverlayState extends State<RouteFlowOverlay>
             camera: widget.controller.camera,
             segments: widget.segments,
             dashOffset: _dashOffset,
+            vehicleOnly: widget.vehicleOnly,
           ),
         ),
       ),
@@ -90,11 +98,13 @@ class RouteFlowPainter extends CustomPainter {
     required this.camera,
     required this.segments,
     required this.dashOffset,
+    required this.vehicleOnly,
   });
 
   final MapCamera camera;
   final List<FlowSegment> segments;
   final double dashOffset;
+  final bool vehicleOnly;
 
   static const _dash = 14.0;
   static const _gap = 22.0;
@@ -125,49 +135,62 @@ class RouteFlowPainter extends CustomPainter {
       path.lineTo(points[i].dx, points[i].dy);
     }
 
-    final glowPaint = Paint()
-      ..color = seg.color.withValues(alpha: 0.28)
-      ..strokeWidth = seg.strokeWidth * 2.4
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5);
-    canvas.drawPath(path, glowPaint);
+    if (!vehicleOnly) {
+      final glowPaint = Paint()
+        ..color = seg.color.withValues(alpha: 0.28)
+        ..strokeWidth = seg.strokeWidth * 2.4
+        ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5);
+      canvas.drawPath(path, glowPaint);
 
-    final dashPaint = Paint()
-      ..color = Colors.white.withValues(alpha: 0.9)
-      ..strokeWidth = seg.strokeWidth * 0.42
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round;
+      final dashPaint = Paint()
+        ..color = Colors.white.withValues(alpha: 0.9)
+        ..strokeWidth = seg.strokeWidth * 0.42
+        ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round;
 
-    final period = _dash + _gap;
-    final startOffset = dashOffset % period;
+      final period = _dash + _gap;
+      final startOffset = dashOffset % period;
+
+      for (final metric in path.computeMetrics()) {
+        var dist = -startOffset;
+        while (dist < metric.length) {
+          if (dist + _dash > 0) {
+            final from = math.max(0.0, dist);
+            final to = math.min(dist + _dash, metric.length);
+            if (to > from) {
+              canvas.drawPath(metric.extractPath(from, to), dashPaint);
+            }
+          }
+          dist += period;
+        }
+      }
+    }
 
     for (final metric in path.computeMetrics()) {
-      var dist = -startOffset;
-      while (dist < metric.length) {
-        if (dist + _dash > 0) {
-          final from = math.max(0.0, dist);
-          final to = math.min(dist + _dash, metric.length);
-          if (to > from) {
-            canvas.drawPath(metric.extractPath(from, to), dashPaint);
-          }
-        }
-        dist += period;
-      }
-
       if (seg.showVehicle && metric.length > 50) {
         final vehicleDistance = (dashOffset * 0.72) % metric.length;
         final tangent = metric.getTangentForOffset(vehicleDistance);
-        if (tangent != null) _paintVehicle(canvas, tangent, seg.color);
+        if (tangent != null) {
+          _paintVehicle(canvas, tangent, seg.color, dashOffset);
+        }
       }
     }
   }
 
-  void _paintVehicle(Canvas canvas, ui.Tangent tangent, Color routeColor) {
+  void _paintVehicle(
+    Canvas canvas,
+    ui.Tangent tangent,
+    Color routeColor,
+    double phase,
+  ) {
     final angle = math.atan2(tangent.vector.dy, tangent.vector.dx);
+    final suspension = math.sin(phase * 0.22) * 1.15;
+    final steeringSway = math.sin(phase * 0.13) * 0.025;
     canvas.save();
-    canvas.translate(tangent.position.dx, tangent.position.dy);
-    canvas.rotate(angle);
+    canvas.translate(tangent.position.dx, tangent.position.dy + suspension);
+    canvas.rotate(angle + steeringSway);
 
     // Sombra separada del mapa: hace que la combi se perciba 2.5D.
     canvas.drawOval(
@@ -248,7 +271,8 @@ class RouteFlowPainter extends CustomPainter {
   bool shouldRepaint(RouteFlowPainter oldDelegate) =>
       oldDelegate.dashOffset != dashOffset ||
       oldDelegate.camera != camera ||
-      oldDelegate.segments != segments;
+      oldDelegate.segments != segments ||
+      oldDelegate.vehicleOnly != vehicleOnly;
 }
 
 class FlowSegment {

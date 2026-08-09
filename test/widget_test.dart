@@ -2,6 +2,13 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:rutas_cancun/features/routes/data/routes_repository.dart';
 
 void main() {
+  test('RouteVehicleType interpreta tipos del API y usa camión por defecto',
+      () {
+    expect(RouteVehicleType.fromJson('combi'), RouteVehicleType.combi);
+    expect(RouteVehicleType.fromJson('pochis'), RouteVehicleType.pochis);
+    expect(RouteVehicleType.fromJson(null), RouteVehicleType.bus);
+  });
+
   test('RankedRoute durationText hides low confidence', () {
     final route = RankedRoute(
       routeId: '1',

@@ -1,9 +1,9 @@
 /// Horarios de servicio por ruta — catálogo cliente basado en IMOVEQROO y fuentes públicas.
 ///
 /// Fuentes:
-/// - R1/R2 Zona Hotelera: servicio 24 h (frecuencia reducida 00:00–05:00).
-/// - R5, R17, R44: horario extendido hasta ~02:30 en temporadas / demanda (Digital News QR 2025).
-/// - Resto del sistema urbano: ~06:00–22:30 (Moovit / Go Cancun Guide).
+/// - R1/R2 Zona Hotelera: servicio 24 h (frecuencia reducida de madrugada).
+/// - R27 MOBI: última salida reportada alrededor de 23:30, todavía en piloto.
+/// - El resto no se marca nocturno sin evidencia pública suficiente.
 ///
 /// Cuando la API exponga `metadata.service_hours`, [RouteServiceHours.forRoute] lo prioriza.
 library;
@@ -37,7 +37,8 @@ class RouteServiceInfo {
   final List<String> sources;
 
   bool get hasNightService =>
-      level == RouteServiceLevel.allDay24h || level == RouteServiceLevel.extendedNight;
+      level == RouteServiceLevel.allDay24h ||
+      level == RouteServiceLevel.extendedNight;
 
   String get badgeLabel => switch (level) {
         RouteServiceLevel.allDay24h => '24 h',
@@ -60,28 +61,7 @@ abstract final class RouteServiceHours {
       summary: 'Centro ↔ Zona Hotelera · servicio continuo 24 h',
       firstDeparture: '05:00',
       lastDeparture: null,
-      sources: ['IMOVEQROO', 'PorEsto ZH'],
-    ),
-    'R5': RouteServiceInfo(
-      level: RouteServiceLevel.extendedNight,
-      summary: 'Puerto Juárez · horario extendido en temporada',
-      firstDeparture: '06:00',
-      lastDeparture: '02:30',
-      sources: ['Digital News QR 2025'],
-    ),
-    'R17': RouteServiceInfo(
-      level: RouteServiceLevel.extendedNight,
-      summary: 'Leona Vicario · servicio hasta altas horas',
-      firstDeparture: '06:00',
-      lastDeparture: '02:30',
-      sources: ['Digital News QR 2025'],
-    ),
-    'R44': RouteServiceInfo(
-      level: RouteServiceLevel.extendedNight,
-      summary: 'Tierra Maya / Autocar · extensión nocturna',
-      firstDeparture: '06:00',
-      lastDeparture: '02:30',
-      sources: ['SIPSE', 'Digital News QR 2025'],
+      sources: ['IMOVEQROO', 'Reddit r/cancun', 'Tripadvisor Cancún'],
     ),
     'R4': RouteServiceInfo(
       level: RouteServiceLevel.dayOnly,
@@ -104,10 +84,11 @@ abstract final class RouteServiceHours {
       lastDeparture: '22:30',
     ),
     'R27': RouteServiceInfo(
-      level: RouteServiceLevel.dayOnly,
-      summary: 'Bonfil / Nichupté · horario diurno (~06:00–22:30)',
-      lastDeparture: '22:30',
-      sources: ['Moovit R-27'],
+      level: RouteServiceLevel.extendedNight,
+      summary: 'MOBI · últimas corridas estimadas hasta 23:30',
+      firstDeparture: '05:30',
+      lastDeparture: '23:30',
+      sources: ['Gobierno de Quintana Roo (piloto MOBI)', 'fuente comunitaria'],
     ),
     'R48': RouteServiceInfo(
       level: RouteServiceLevel.dayOnly,
@@ -121,7 +102,8 @@ abstract final class RouteServiceHours {
     ),
   };
 
-  static RouteServiceInfo? forCode(String code, {Map<String, dynamic>? metadata}) {
+  static RouteServiceInfo? forCode(String code,
+      {Map<String, dynamic>? metadata}) {
     final fromMeta = _fromMetadata(metadata);
     if (fromMeta != null) return fromMeta;
     return _catalog[code.toUpperCase()];
@@ -154,18 +136,21 @@ abstract final class RouteServiceHours {
     return forCode(code, metadata: metadata)?.hasNightService ?? false;
   }
 
-  static bool matchesNightFilter(String code, {Map<String, dynamic>? metadata}) =>
+  static bool matchesNightFilter(String code,
+          {Map<String, dynamic>? metadata}) =>
       hasNightService(code, metadata: metadata);
 
   /// Indica si la ruta podría estar operando en este momento (heurística local).
-  static bool isLikelyOperatingNow(String code, DateTime now, {Map<String, dynamic>? metadata}) {
+  static bool isLikelyOperatingNow(String code, DateTime now,
+      {Map<String, dynamic>? metadata}) {
     final info = forCode(code, metadata: metadata);
     if (info == null) return true;
     if (info.level == RouteServiceLevel.allDay24h) return true;
 
     final minutes = now.hour * 60 + now.minute;
     final start = _parseTime(info.firstDeparture) ?? 360;
-    final end = info.lastDeparture != null ? _parseTime(info.lastDeparture!) : null;
+    final end =
+        info.lastDeparture != null ? _parseTime(info.lastDeparture!) : null;
 
     if (end == null) return minutes >= start;
 

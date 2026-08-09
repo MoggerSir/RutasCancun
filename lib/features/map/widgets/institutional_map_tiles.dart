@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_map/flutter_map.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 enum MapTileTheme { day, night }
 
@@ -78,6 +79,35 @@ class VividMapTiles extends StatelessWidget {
     // parejo (visto y confirmado en pantalla, no es solo teórico).
     return RepaintBoundary(
       child: ColorFiltered(colorFilter: _saturationBoost, child: tiles),
+    );
+  }
+}
+
+/// Atribución exigida por los proveedores de las teselas y sus datos.
+class MapAttribution extends StatelessWidget {
+  const MapAttribution({super.key});
+
+  static Future<void> _open(String url) => launchUrl(
+        Uri.parse(url),
+        mode: LaunchMode.externalApplication,
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    return RichAttributionWidget(
+      alignment: AttributionAlignment.bottomLeft,
+      showFlutterMapAttribution: false,
+      popupBackgroundColor: Colors.white.withValues(alpha: 0.96),
+      attributions: [
+        TextSourceAttribution(
+          'OpenStreetMap contributors',
+          onTap: () => _open('https://www.openstreetmap.org/copyright'),
+        ),
+        TextSourceAttribution(
+          'CARTO',
+          onTap: () => _open('https://carto.com/attributions'),
+        ),
+      ],
     );
   }
 }

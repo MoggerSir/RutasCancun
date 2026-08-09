@@ -1,11 +1,11 @@
 {
-    "name": "rutas_cancun",
-    "short_name": "rutas_cancun",
+    "name": "Rutas Cancún",
+    "short_name": "Rutas Cancún",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#FBFAF6",
+    "theme_color": "#0B4558",
+    "description": "Explora rutas de transporte en Cancún y encuentra cómo llegar.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

@@ -15,23 +15,33 @@ class RouteLineBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final separator = code.indexOf('-');
+    final label = separator > 0 && separator < code.length - 1
+        ? '${code.substring(0, separator)}\n${code.substring(separator + 1).replaceAll('-', ' ')}'
+        : code;
     return Container(
-      padding: EdgeInsets.symmetric(horizontal: large ? 10 : 8, vertical: large ? 5 : 4),
+      padding: EdgeInsets.symmetric(
+          horizontal: large ? 10 : 8, vertical: large ? 5 : 4),
       decoration: BoxDecoration(
         color: color,
         borderRadius: BorderRadius.circular(10),
         border: Border.all(color: Colors.white, width: 2),
         boxShadow: [
-          BoxShadow(color: color.withValues(alpha: 0.45), blurRadius: 8, offset: const Offset(0, 2)),
+          BoxShadow(
+              color: color.withValues(alpha: 0.45),
+              blurRadius: 8,
+              offset: const Offset(0, 2)),
         ],
       ),
       child: Text(
-        code,
+        label,
+        maxLines: 2,
+        textAlign: TextAlign.center,
         style: TextStyle(
           color: Colors.white,
           fontSize: large ? 12 : 10,
           fontWeight: FontWeight.w800,
-          height: 1,
+          height: 0.92,
           letterSpacing: 0.2,
         ),
       ),

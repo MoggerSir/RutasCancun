@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 500">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1024" y2="500" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#073B4C"/><stop offset="1" stop-color="#0F6677"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="500" fill="url(#bg)"/>
+  <path d="M-40 410C142 410 175 173 359 173h110c181 0 175-115 345-115h250" fill="none" stroke="#28C6B7" stroke-width="34" stroke-linecap="round" opacity=".75"/>
+  <circle cx="104" cy="384" r="17" fill="#F7FAF4"/><circle cx="872" cy="58" r="17" fill="#F7FAF4"/>
+  <g transform="translate(770 110)">
+    <rect x="0" y="0" width="185" height="264" rx="48" fill="#F7FAF4"/>
+    <rect x="27" y="32" width="131" height="98" rx="20" fill="#BFE7ED"/>
+    <path d="M92.5 32v98" stroke="#0F566B" stroke-width="11"/>
+    <rect x="27" y="157" width="131" height="26" rx="13" fill="#28C6B7"/>
+    <circle cx="45" cy="219" r="17" fill="#0F566B"/><circle cx="140" cy="219" r="17" fill="#0F566B"/>
+  </g>
+  <text x="88" y="221" fill="#FFFFFF" font-family="Arial, sans-serif" font-size="68" font-weight="800">Rutas Cancún</text>
+  <text x="91" y="279" fill="#CDE8E7" font-family="Arial, sans-serif" font-size="27">Encuentra tu camino. Muévete con claridad.</text>
+</svg>

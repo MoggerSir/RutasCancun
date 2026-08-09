@@ -40,8 +40,8 @@ jobs:
       - name: Build web
         run: >-
           flutter build web --release
-          --base-href "/RutasCancun/"
-          --dart-define=API_BASE_URL=https://rutascancun.larpmusic.com.mx/api
+          --base-href "/"
+          --dart-define=API_BASE_URL=https://api.rutascancun.com/api
 
       - name: Configure Pages
         uses: actions/configure-pages@v5

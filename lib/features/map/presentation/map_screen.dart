@@ -3,6 +3,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
@@ -75,7 +76,7 @@ class _MapLoadingShell extends StatelessWidget {
             initialCenter: LatLng(21.155, -86.82),
             initialZoom: 12.5,
           ),
-          children: [VividMapTiles()],
+          children: [VividMapTiles(), MapAttribution()],
         ),
         Center(
           child: CircularProgressIndicator(
@@ -102,7 +103,7 @@ class _MapErrorState extends StatelessWidget {
             initialCenter: LatLng(21.155, -86.82),
             initialZoom: 12.5,
           ),
-          children: [VividMapTiles()],
+          children: [VividMapTiles(), MapAttribution()],
         ),
         Center(
           child: Padding(
@@ -145,7 +146,7 @@ class _EmptyDriverMap extends StatelessWidget {
             initialCenter: LatLng(21.155, -86.82),
             initialZoom: 12.5,
           ),
-          children: [VividMapTiles()],
+          children: [VividMapTiles(), MapAttribution()],
         ),
         SafeArea(
           child: Padding(
@@ -200,11 +201,13 @@ class _PremiumMapBody extends ConsumerStatefulWidget {
 class _PremiumMapBodyState extends ConsumerState<_PremiumMapBody>
     with SingleTickerProviderStateMixin {
   final _mapController = MapController();
+  final GlobalKey _mapViewportKey = GlobalKey();
   final _cache = MapRouteCache.instance;
   final _details = <String, RouteDetail>{};
   final LayerHitNotifier<String> _polylineHitNotifier = ValueNotifier(null);
 
   String? _selectedCode;
+  RouteVehicleType? _vehicleFilter;
   bool _fitPending = true;
   bool _nightBoundsApplied = false;
   MapNavAction? _navAction;
@@ -213,6 +216,8 @@ class _PremiumMapBodyState extends ConsumerState<_PremiumMapBody>
   String _loadingMessage = 'Cargando…';
   LatLng? _userLocation;
   StreamSubscription<Position>? _locationSub;
+  StreamSubscription<MapEvent>? _badgeLayoutMapSub;
+  Timer? _badgeLayoutDebounce;
   bool _bundleReady = false;
   // CanvasKit recompone toda la escena del mapa por cada frame animado. En
   // web mostramos las rutas de inmediato y mantenemos el mapa completamente
@@ -233,6 +238,8 @@ class _PremiumMapBodyState extends ConsumerState<_PremiumMapBody>
   bool _planningConfirmed = false;
   bool _planningCalculating = false;
   String? _planningError;
+  _PlannerPoint? _draggingPlannerPoint;
+  Offset _plannerDragPointerOffset = Offset.zero;
 
   // Fundido cruzado de opacidad al seleccionar/deseleccionar una ruta —
   // sin esto, las demás rutas aparecían/desaparecían de golpe en vez de
@@ -257,6 +264,12 @@ class _PremiumMapBodyState extends ConsumerState<_PremiumMapBody>
     _loadMapBundle();
     _startUserLocationTracking();
     _visualFadeCtrl.addListener(_onFadeTick);
+    _badgeLayoutMapSub = _mapController.mapEventStream.listen((_) {
+      _badgeLayoutDebounce?.cancel();
+      _badgeLayoutDebounce = Timer(const Duration(milliseconds: 140), () {
+        if (mounted) setState(() {});
+      });
+    });
   }
 
   void _onFadeTick() {
@@ -266,6 +279,8 @@ class _PremiumMapBodyState extends ConsumerState<_PremiumMapBody>
   @override
   void dispose() {
     _locationSub?.cancel();
+    _badgeLayoutMapSub?.cancel();
+    _badgeLayoutDebounce?.cancel();
     _visualFadeCtrl.dispose();
     super.dispose();
   }
@@ -280,10 +295,7 @@ class _PremiumMapBodyState extends ConsumerState<_PremiumMapBody>
   }
 
   Future<void> _startUserLocationTracking() async {
-    var perm = await Geolocator.checkPermission();
-    if (perm == LocationPermission.denied) {
-      perm = await Geolocator.requestPermission();
-    }
+    final perm = await Geolocator.checkPermission();
     if (perm == LocationPermission.denied ||
         perm == LocationPermission.deniedForever) {
       return;
@@ -305,6 +317,94 @@ class _PremiumMapBodyState extends ConsumerState<_PremiumMapBody>
       if (!mounted) return;
       setState(() => _userLocation = LatLng(pos.latitude, pos.longitude));
     });
+  }
+
+  Future<bool> _ensureLocationAccess({required String purpose}) async {
+    var permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      if (!mounted) return false;
+      final accepted = await showDialog<bool>(
+            context: context,
+            barrierDismissible: false,
+            builder: (dialogContext) => AlertDialog(
+              icon: const Icon(
+                Icons.location_on_outlined,
+                color: AppColors.primary,
+                size: 34,
+              ),
+              title: const Text('Permitir ubicación'),
+              content: Text(
+                '$purpose\n\n'
+                'Rutas Cancún usará tu ubicación sólo mientras utilizas la app. '
+                'No se usa para publicidad y puedes continuar sin concederla.',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () {
+                    Navigator.pop(dialogContext, false);
+                    context.push('/legal?section=privacy');
+                  },
+                  child: const Text('Ver privacidad'),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext, false),
+                  child: const Text('Ahora no'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.pop(dialogContext, true),
+                  child: const Text('Continuar'),
+                ),
+              ],
+            ),
+          ) ??
+          false;
+      if (!accepted) return false;
+      permission = await Geolocator.requestPermission();
+    }
+
+    if (permission == LocationPermission.deniedForever) {
+      if (!mounted) return false;
+      final openSettings = await showDialog<bool>(
+            context: context,
+            builder: (dialogContext) => AlertDialog(
+              icon: const Icon(Icons.settings_outlined),
+              title: const Text('Ubicación bloqueada'),
+              content: const Text(
+                'Android tiene bloqueado este permiso. Puedes habilitarlo en '
+                'Ajustes y volver a intentarlo; el resto de la app seguirá '
+                'funcionando si prefieres no hacerlo.',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext, false),
+                  child: const Text('Cancelar'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.pop(dialogContext, true),
+                  child: const Text('Abrir Ajustes'),
+                ),
+              ],
+            ),
+          ) ??
+          false;
+      if (openSettings) await Geolocator.openAppSettings();
+      return false;
+    }
+
+    if (permission == LocationPermission.denied) return false;
+    if (!await Geolocator.isLocationServiceEnabled()) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Enciende la ubicación del teléfono para continuar'),
+          ),
+        );
+      }
+      return false;
+    }
+
+    await _startUserLocationTracking();
+    return true;
   }
 
   void _applyGpsFix(LatLng here) {
@@ -366,7 +466,39 @@ class _PremiumMapBodyState extends ConsumerState<_PremiumMapBody>
           .where((r) => RouteServiceHours.matchesNightFilter(r.code))
           .toList();
     }
+    if (_vehicleFilter != null) {
+      routes =
+          routes.where((route) => route.vehicleType == _vehicleFilter).toList();
+    }
     return routes;
+  }
+
+  void _applyVehicleFilter(RouteVehicleType? type) {
+    final selectedStillVisible = _selectedCode == null ||
+        widget.routes.any(
+          (route) =>
+              route.code == _selectedCode &&
+              (type == null || route.vehicleType == type),
+        );
+    final count = type == null
+        ? widget.routes.length
+        : widget.routes.where((route) => route.vehicleType == type).length;
+    final label = switch (type) {
+      RouteVehicleType.bus => 'camión',
+      RouteVehicleType.combi => 'combi',
+      RouteVehicleType.pochis => 'pochi',
+      null => 'ruta',
+    };
+
+    setState(() {
+      _vehicleFilter = type;
+      if (!selectedStillVisible) _selectedCode = null;
+      _filterHint = type == null
+          ? null
+          : '$count ${count == 1 ? label : '${label}s'} en el mapa';
+      _fitPending = true;
+    });
+    _scheduleFitBounds();
   }
 
   Future<void> _loadMapBundle() async {
@@ -455,6 +587,26 @@ class _PremiumMapBodyState extends ConsumerState<_PremiumMapBody>
           .add((points: _polylineToLatLng(detail.polyline!), isVuelta: false));
     }
     return segments;
+  }
+
+  List<({List<LatLng> points, bool isVuelta})> _displaySegments(
+      RouteDetail detail, String routeCode) {
+    if (_planningConfirmed && _plannedJourney != null) {
+      final clipped = _plannedJourney!.legs
+          .where(
+              (leg) => leg.routeCode == routeCode && leg.geometry.length >= 2)
+          .map(
+            (leg) => (
+              points: leg.geometry
+                  .map((point) => LatLng(point.lat, point.lng))
+                  .toList(),
+              isVuelta: leg.direction.contains('vuelta'),
+            ),
+          )
+          .toList();
+      if (clipped.isNotEmpty) return clipped;
+    }
+    return _renderableSegments(detail);
   }
 
   RouteVisualState _visualStateFor(String code) {
@@ -613,12 +765,9 @@ class _PremiumMapBodyState extends ConsumerState<_PremiumMapBody>
       _nearbyFilterActive = false;
       _showAllFarRoutes = true;
       _nearbyFallbackMessage = null;
+      _vehicleFilter = null;
     });
     _scheduleFitBounds();
-  }
-
-  void _toggleShowAllFar() {
-    setState(() => _showAllFarRoutes = !_showAllFarRoutes);
   }
 
   Future<void> _handleNavAction(MapNavAction action) async {
@@ -686,20 +835,55 @@ class _PremiumMapBodyState extends ConsumerState<_PremiumMapBody>
     });
   }
 
-  void _dragPlannerPoint(_PlannerPoint target, DragUpdateDetails details) {
+  Offset? _mapLocalPosition(Offset globalPosition) {
+    final renderObject = _mapViewportKey.currentContext?.findRenderObject();
+    if (renderObject is! RenderBox) return null;
+    return renderObject.globalToLocal(globalPosition);
+  }
+
+  void _startDraggingPlannerPoint(
+      _PlannerPoint target, LongPressStartDetails details) {
     final current =
         target == _PlannerPoint.origin ? _planningOrigin : _planningDestination;
     if (current == null) return;
+    final local = _mapLocalPosition(details.globalPosition);
+    if (local == null) return;
     try {
       final screen = _mapController.camera.latLngToScreenPoint(current);
+      _plannerDragPointerOffset = Offset(
+        screen.x - local.dx,
+        screen.y - local.dy,
+      );
+      setState(() {
+        _activePlannerPoint = target;
+        _draggingPlannerPoint = target;
+      });
+      HapticFeedback.mediumImpact();
+    } catch (_) {}
+  }
+
+  void _dragPlannerPoint(
+      _PlannerPoint target, LongPressMoveUpdateDetails details) {
+    if (_draggingPlannerPoint != target) return;
+    final local = _mapLocalPosition(details.globalPosition);
+    if (local == null) return;
+    try {
       final moved = _mapController.camera.pointToLatLng(
         math.Point<double>(
-          screen.x + details.delta.dx,
-          screen.y + details.delta.dy,
+          local.dx + _plannerDragPointerOffset.dx,
+          local.dy + _plannerDragPointerOffset.dy,
         ),
       );
       _movePlannerPoint(target, moved);
     } catch (_) {}
+  }
+
+  void _stopDraggingPlannerPoint() {
+    if (_draggingPlannerPoint == null) return;
+    setState(() {
+      _draggingPlannerPoint = null;
+      _plannerDragPointerOffset = Offset.zero;
+    });
   }
 
   Future<void> _confirmPlanning() async {
@@ -746,10 +930,10 @@ class _PremiumMapBodyState extends ConsumerState<_PremiumMapBody>
         _selectedCode = codes.first;
       });
       final fitPoints = <LatLng>[origin, destination];
-      for (final summary in widget.routes) {
-        if (codes.contains(summary.code)) {
-          fitPoints.addAll(_routePoints(summary));
-        }
+      for (final leg in journey!.legs) {
+        fitPoints.addAll(
+          leg.geometry.map((point) => LatLng(point.lat, point.lng)),
+        );
       }
       _safeFitCamera(fitPoints);
     } catch (_) {
@@ -820,20 +1004,19 @@ class _PremiumMapBodyState extends ConsumerState<_PremiumMapBody>
       return;
     }
 
-    await _withLoading(() async {
-      var perm = await Geolocator.checkPermission();
-      if (perm == LocationPermission.denied) {
-        perm = await Geolocator.requestPermission();
+    final allowed = await _ensureLocationAccess(
+      purpose:
+          'La necesitamos para comparar tu posición con los recorridos y mostrarte las rutas cercanas.',
+    );
+    if (!allowed) {
+      if (mounted) {
+        setState(
+            () => _filterHint = 'Activa ubicación para ver rutas cercanas');
       }
-      if (perm == LocationPermission.denied ||
-          perm == LocationPermission.deniedForever) {
-        if (mounted) {
-          setState(
-              () => _filterHint = 'Activa ubicación para ver rutas cercanas');
-        }
-        return;
-      }
+      return;
+    }
 
+    await _withLoading(() async {
       final pos = await Geolocator.getCurrentPosition();
       final here = LatLng(pos.latitude, pos.longitude);
       if (mounted) setState(() => _userLocation = here);
@@ -879,20 +1062,11 @@ class _PremiumMapBodyState extends ConsumerState<_PremiumMapBody>
   }
 
   Future<void> _centerOnMyLocation() async {
-    var perm = await Geolocator.checkPermission();
-    if (perm == LocationPermission.denied) {
-      perm = await Geolocator.requestPermission();
-    }
-    if (perm == LocationPermission.denied ||
-        perm == LocationPermission.deniedForever) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-              content: Text('Activa ubicación para centrarte en el mapa')),
-        );
-      }
-      return;
-    }
+    final allowed = await _ensureLocationAccess(
+      purpose:
+          'La necesitamos para centrar el mapa en tu posición y ayudarte a ubicarte.',
+    );
+    if (!allowed) return;
     final pos = await Geolocator.getCurrentPosition();
     final here = LatLng(pos.latitude, pos.longitude);
     if (mounted) setState(() => _userLocation = here);
@@ -901,7 +1075,8 @@ class _PremiumMapBodyState extends ConsumerState<_PremiumMapBody>
 
   void _handleMapTap(TapPosition tapPosition, LatLng point) {
     if (_planningMode) {
-      _movePlannerPoint(_activePlannerPoint, point);
+      // Los puntos sólo cambian mediante pulsación larga y arrastre. Así un
+      // doble toque para hacer zoom jamás reubica el pin activo.
       return;
     }
     final hit = _polylineHitNotifier.value;
@@ -919,7 +1094,7 @@ class _PremiumMapBodyState extends ConsumerState<_PremiumMapBody>
       final detail = _detailFor(summary);
       if (detail == null) continue;
 
-      for (final seg in _renderableSegments(detail)) {
+      for (final seg in _displaySegments(detail, summary.code)) {
         final dist = _screenDistanceToPolyline(tapPx, seg.points, camera);
         if (dist < _tapTolerancePx) {
           hits[summary.code] =
@@ -1031,16 +1206,19 @@ class _PremiumMapBodyState extends ConsumerState<_PremiumMapBody>
         );
       }
 
-      for (final seg in _renderableSegments(detail)) {
+      for (final seg in _displaySegments(detail, summary.code)) {
         addSegment(seg.points, isVuelta: seg.isVuelta);
       }
     }
     if (_planningConfirmed && _plannedJourney != null) {
-      final firstCode = _plannedJourney!.legs.first.routeCode;
-      final lastCode = _plannedJourney!.legs.last.routeCode;
-      final originJoin = _nearestPointOnRoute(firstCode, _planningOrigin);
-      final destinationJoin =
-          _nearestPointOnRoute(lastCode, _planningDestination);
+      final firstLeg = _plannedJourney!.legs.first;
+      final lastLeg = _plannedJourney!.legs.last;
+      final originJoin = firstLeg.boardPoint == null
+          ? _nearestPointOnRoute(firstLeg.routeCode, _planningOrigin)
+          : LatLng(firstLeg.boardPoint!.lat, firstLeg.boardPoint!.lng);
+      final destinationJoin = lastLeg.alightPoint == null
+          ? _nearestPointOnRoute(lastLeg.routeCode, _planningDestination)
+          : LatLng(lastLeg.alightPoint!.lat, lastLeg.alightPoint!.lng);
       if (_planningOrigin != null && originJoin != null) {
         polylines.add(
           Polyline<String>(
@@ -1060,6 +1238,20 @@ class _PremiumMapBodyState extends ConsumerState<_PremiumMapBody>
             strokeWidth: 4,
             strokeCap: StrokeCap.round,
             pattern: StrokePattern.dashed(segments: const [7, 7]),
+          ),
+        );
+      }
+      for (var index = 0; index < _plannedJourney!.legs.length - 1; index++) {
+        final from = _plannedJourney!.legs[index].alightPoint;
+        final to = _plannedJourney!.legs[index + 1].boardPoint;
+        if (from == null || to == null) continue;
+        polylines.add(
+          Polyline<String>(
+            points: [LatLng(from.lat, from.lng), LatLng(to.lat, to.lng)],
+            color: const Color(0xFF50646D).withValues(alpha: 0.9),
+            strokeWidth: 3.5,
+            strokeCap: StrokeCap.round,
+            pattern: StrokePattern.dashed(segments: const [6, 6]),
           ),
         );
       }
@@ -1097,7 +1289,7 @@ class _PremiumMapBodyState extends ConsumerState<_PremiumMapBody>
       final visual = _visualStateFor(summary.code);
       final dimmed = visual != RouteVisualState.selected;
 
-      for (final seg in _renderableSegments(detail)) {
+      for (final seg in _displaySegments(detail, summary.code)) {
         final showVehicle = !dimmed && !vehicleAssigned && !seg.isVuelta;
         segments.add(
           FlowSegment(
@@ -1155,7 +1347,7 @@ class _PremiumMapBodyState extends ConsumerState<_PremiumMapBody>
 
   List<Marker> _buildMapMarkers() {
     final markers = <Marker>[];
-    final center = _mapCenterLatLng();
+    final badgePlacements = _layoutRouteBadges();
 
     if (_userLocation != null) {
       markers.add(
@@ -1170,45 +1362,6 @@ class _PremiumMapBodyState extends ConsumerState<_PremiumMapBody>
       );
     }
 
-    if (_planningMode) {
-      if (_planningOrigin != null) {
-        markers.add(
-          Marker(
-            point: _planningOrigin!,
-            width: 64,
-            height: 76,
-            alignment: Alignment.topCenter,
-            child: _DraggablePlannerMarker(
-              kind: _PlannerPoint.origin,
-              selected: _activePlannerPoint == _PlannerPoint.origin,
-              onSelected: () =>
-                  setState(() => _activePlannerPoint = _PlannerPoint.origin),
-              onDragUpdate: (details) =>
-                  _dragPlannerPoint(_PlannerPoint.origin, details),
-            ),
-          ),
-        );
-      }
-      if (_planningDestination != null) {
-        markers.add(
-          Marker(
-            point: _planningDestination!,
-            width: 64,
-            height: 76,
-            alignment: Alignment.topCenter,
-            child: _DraggablePlannerMarker(
-              kind: _PlannerPoint.destination,
-              selected: _activePlannerPoint == _PlannerPoint.destination,
-              onSelected: () => setState(
-                  () => _activePlannerPoint = _PlannerPoint.destination),
-              onDragUpdate: (details) =>
-                  _dragPlannerPoint(_PlannerPoint.destination, details),
-            ),
-          ),
-        );
-      }
-    }
-
     for (final summary in _visibleRoutes) {
       if (!_isRouteDrawable(summary.code)) continue;
       final detail = _detailFor(summary);
@@ -1219,7 +1372,7 @@ class _PremiumMapBodyState extends ConsumerState<_PremiumMapBody>
       final alpha = _currentAlpha(summary.code);
       if (alpha <= 0.001) continue;
 
-      if (visual == RouteVisualState.selected) {
+      if (visual == RouteVisualState.selected && !_planningConfirmed) {
         for (final stop in detail.stops) {
           markers.add(
             Marker(
@@ -1237,85 +1390,291 @@ class _PremiumMapBodyState extends ConsumerState<_PremiumMapBody>
         }
       }
 
-      for (final seg in _renderableSegments(detail)) {
-        if (seg.isVuelta || seg.points.length < 2) continue;
-        // En la vista general ya existe una lista con los 17 códigos. Mover
-        // y componer 17 badges con borde/sombra en cada frame del mapa
-        // generaba ruido visual y trabajo innecesario en web; el badge
-        // reaparece al seleccionar una ruta.
-        if (kIsWeb && visual != RouteVisualState.selected) continue;
-        final midIdx = _badgeIndexClosestToCenter(seg.points, center);
-        final mid = seg.points[midIdx];
-        markers.add(
-          Marker(
-            point: mid,
-            width: visual == RouteVisualState.selected ? 52 : 44,
-            height: visual == RouteVisualState.selected ? 30 : 26,
-            alignment: Alignment.center,
-            child: Opacity(
-              opacity: alpha,
-              child: RouteLineBadge(
-                code: summary.code,
-                color: color.withValues(
-                    alpha: visual == RouteVisualState.selected ? 1 : 0.75),
-                large: visual == RouteVisualState.selected,
-              ),
+      // En web sólo se compone el letrero de la ruta elegida. En móvil cada
+      // letrero recibe una posición calculada para no apiñarse con los demás.
+      if (kIsWeb && visual != RouteVisualState.selected) continue;
+      final placement = badgePlacements[summary.code];
+      if (placement == null) continue;
+      final size = _routeBadgeSize(summary.code, visual);
+      markers.add(
+        Marker(
+          point: placement,
+          width: size.width,
+          height: size.height,
+          alignment: Alignment.center,
+          rotate: true,
+          child: Opacity(
+            opacity: alpha,
+            child: RouteLineBadge(
+              code: summary.code,
+              color: color.withValues(
+                  alpha: visual == RouteVisualState.selected ? 1 : 0.75),
+              large: visual == RouteVisualState.selected,
             ),
           ),
-        );
-        break;
-      }
+        ),
+      );
     }
 
     return markers;
   }
 
-  int _badgeIndexClosestToCenter(List<LatLng> points, LatLng? center) {
-    if (center == null || points.isEmpty) return points.length ~/ 2;
-    var best = 0;
-    var bestD = double.infinity;
-    for (var i = 0; i < points.length; i++) {
-      final d = const Distance().distance(center, points[i]);
-      if (d < bestD) {
-        bestD = d;
-        best = i;
+  Size _routeBadgeSize(String code, RouteVisualState visual) {
+    final selected = visual == RouteVisualState.selected;
+    final hasVariant = code.contains('-');
+    return Size(
+      hasVariant ? (selected ? 78 : 68) : (selected ? 52 : 44),
+      hasVariant ? (selected ? 42 : 36) : (selected ? 30 : 26),
+    );
+  }
+
+  Map<String, LatLng> _layoutRouteBadges() {
+    final placements = <String, LatLng>{};
+    final occupied = <Rect>[];
+    late final MapCamera camera;
+    try {
+      camera = _mapController.camera;
+    } catch (_) {
+      // FlutterMap todavía no tiene cámara durante su primer frame.
+      return placements;
+    }
+    final viewport = MediaQuery.sizeOf(context);
+    final safeArea = Rect.fromLTRB(
+      14,
+      math.min(170, viewport.height * 0.22),
+      viewport.width - 14,
+      viewport.height - math.min(205, viewport.height * 0.28),
+    );
+
+    // La seleccionada reserva espacio primero. Las variantes largas también
+    // se colocan antes porque necesitan una caja mayor.
+    final routes = [..._visibleRoutes]..sort((a, b) {
+        final aSelected = _visualStateFor(a.code) == RouteVisualState.selected;
+        final bSelected = _visualStateFor(b.code) == RouteVisualState.selected;
+        if (aSelected != bSelected) return aSelected ? -1 : 1;
+        final variantOrder = b.code
+            .contains('-')
+            .toString()
+            .compareTo(a.code.contains('-').toString());
+        if (variantOrder != 0) return variantOrder;
+        return a.code.compareTo(b.code);
+      });
+
+    for (final summary in routes) {
+      if (!_isRouteDrawable(summary.code)) continue;
+      final detail = _detailFor(summary);
+      if (detail == null) continue;
+      final visual = _visualStateFor(summary.code);
+      if (kIsWeb && visual != RouteVisualState.selected) continue;
+      final size = _routeBadgeSize(summary.code, visual);
+      final candidates = <LatLng>[];
+      for (final segment in _displaySegments(detail, summary.code)) {
+        if (segment.isVuelta || segment.points.length < 2) continue;
+        candidates.addAll(_badgeCandidates(segment.points));
+      }
+      if (candidates.isEmpty) continue;
+
+      LatLng? best;
+      Rect? bestRect;
+      var bestScore = double.infinity;
+      for (var index = 0; index < candidates.length; index++) {
+        final candidate = candidates[index];
+        final projected = camera.latLngToScreenPoint(candidate);
+        final center = Offset(projected.x, projected.y);
+        final rect = Rect.fromCenter(
+          center: center,
+          width: size.width,
+          height: size.height,
+        );
+        if (!Rect.fromLTWH(0, 0, viewport.width, viewport.height)
+            .inflate(20)
+            .overlaps(rect)) {
+          continue;
+        }
+
+        var collisions = 0;
+        var overlapArea = 0.0;
+        var nearestLabel = viewport.longestSide;
+        for (final reserved in occupied) {
+          nearestLabel = math.min(
+            nearestLabel,
+            (reserved.center - rect.center).distance,
+          );
+          final overlap = rect.inflate(8).intersect(reserved);
+          if (overlap.width > 0 && overlap.height > 0) {
+            collisions++;
+            overlapArea += overlap.width * overlap.height;
+          }
+        }
+
+        final clippedWidth = math.max(0, safeArea.left - rect.left) +
+            math.max(0, rect.right - safeArea.right);
+        final clippedHeight = math.max(0, safeArea.top - rect.top) +
+            math.max(0, rect.bottom - safeArea.bottom);
+        final edgePenalty = clippedWidth + clippedHeight;
+        // Colisionar es muchísimo más caro que alejarse del punto medio. Si
+        // varias opciones están libres, se elige la más separada del resto.
+        final score = collisions * 1000000000000 +
+            overlapArea * 100000000 +
+            edgePenalty * 10000 -
+            nearestLabel * 4 +
+            index * 0.05;
+        if (score < bestScore) {
+          bestScore = score;
+          best = candidate;
+          bestRect = rect;
+        }
+      }
+
+      if (best != null && bestRect != null) {
+        placements[summary.code] = best;
+        occupied.add(bestRect.inflate(10));
       }
     }
-    return best;
+    return placements;
+  }
+
+  List<LatLng> _badgeCandidates(List<LatLng> points) {
+    const fractions = <double>[
+      0.50,
+      0.25,
+      0.75,
+      0.10,
+      0.90,
+      0.35,
+      0.65,
+      0.15,
+      0.85,
+      0.40,
+      0.60,
+      0.05,
+      0.95,
+      0.20,
+      0.80,
+      0.30,
+      0.70,
+      0.45,
+      0.55,
+    ];
+    final cumulative = <double>[0];
+    for (var index = 1; index < points.length; index++) {
+      cumulative.add(
+        cumulative.last +
+            const Distance().distance(points[index - 1], points[index]),
+      );
+    }
+    final total = cumulative.last;
+    if (total <= 0) return [points.first];
+
+    return fractions.map((fraction) {
+      final target = total * fraction;
+      var end = 1;
+      while (end < cumulative.length - 1 && cumulative[end] < target) {
+        end++;
+      }
+      final start = end - 1;
+      final span = cumulative[end] - cumulative[start];
+      final t = span <= 0 ? 0.0 : (target - cumulative[start]) / span;
+      return LatLng(
+        points[start].latitude +
+            (points[end].latitude - points[start].latitude) * t,
+        points[start].longitude +
+            (points[end].longitude - points[start].longitude) * t,
+      );
+    }).toList();
+  }
+
+  List<Marker> _buildPlannerMarkers() {
+    if (!_planningMode) return const [];
+    final markers = <Marker>[];
+
+    void addMarker(LatLng? point, _PlannerPoint kind) {
+      if (point == null) return;
+      markers.add(
+        Marker(
+          point: point,
+          width: 72,
+          height: 76,
+          // En flutter_map la alineación describe dónde queda el widget
+          // respecto al punto: topCenter coloca el widget completo encima de
+          // la coordenada. Así su borde inferior (la punta) es el ancla real.
+          alignment: Alignment.topCenter,
+          rotate: true,
+          child: RepaintBoundary(
+            child: _DraggablePlannerMarker(
+              kind: kind,
+              selected: _activePlannerPoint == kind,
+              dragging: _draggingPlannerPoint == kind,
+              onSelected: () => setState(() => _activePlannerPoint = kind),
+              onDragStart: (details) =>
+                  _startDraggingPlannerPoint(kind, details),
+              onDragUpdate: (details) => _dragPlannerPoint(kind, details),
+              onDragEnd: (_) => _stopDraggingPlannerPoint(),
+              onDragCancel: _stopDraggingPlannerPoint,
+            ),
+          ),
+        ),
+      );
+    }
+
+    addMarker(_planningOrigin, _PlannerPoint.origin);
+    addMarker(_planningDestination, _PlannerPoint.destination);
+    return markers;
   }
 
   @override
   Widget build(BuildContext context) {
     _syncVisualFade();
-    final flowSegments = kIsWeb ? const <FlowSegment>[] : _buildFlowSegments();
+    final flowSegments = _buildFlowSegments();
     final polylines = _buildPolylines();
     final mapMarkers = _buildMapMarkers();
+    final plannerMarkers = _buildPlannerMarkers();
     final startupSegments =
         kIsWeb ? const <StartupRevealSegment>[] : _buildStartupSegments();
 
     return Stack(
       fit: StackFit.expand,
       children: [
-        FlutterMap(
-          key: ValueKey(_mapTheme),
-          mapController: _mapController,
-          options: MapOptions(
-            initialCenter: const LatLng(21.155, -86.82),
-            initialZoom: 12.5,
-            interactionOptions:
-                const InteractionOptions(flags: InteractiveFlag.all),
-            onTap: _handleMapTap,
-          ),
-          children: [
-            VividMapTiles(theme: _mapTheme),
-            if (polylines.isNotEmpty)
-              PolylineLayer(
-                polylines: polylines,
-                hitNotifier: _polylineHitNotifier,
-                simplificationTolerance: kIsWeb ? 1.5 : 0.5,
+        SizedBox.expand(
+          key: _mapViewportKey,
+          child: FlutterMap(
+            key: ValueKey(_mapTheme),
+            mapController: _mapController,
+            options: MapOptions(
+              initialCenter: const LatLng(21.155, -86.82),
+              initialZoom: 12.5,
+              interactionOptions: InteractionOptions(
+                flags: _draggingPlannerPoint == null
+                    ? InteractiveFlag.all & ~InteractiveFlag.rotate
+                    : InteractiveFlag.none,
               ),
-            if (mapMarkers.isNotEmpty) MarkerLayer(markers: mapMarkers),
-          ],
+              onTap: _handleMapTap,
+            ),
+            children: [
+              VividMapTiles(theme: _mapTheme),
+              const MapAttribution(),
+              if (polylines.isNotEmpty)
+                PolylineLayer(
+                  polylines: polylines,
+                  hitNotifier: _polylineHitNotifier,
+                  simplificationTolerance: kIsWeb ? 1.5 : 0.5,
+                ),
+              // La animación vive entre el trazo y los marcadores. Antes se
+              // añadía fuera de FlutterMap, al final del Stack principal, y su
+              // línea blanca atravesaba visualmente el letrero de la ruta.
+              if (_startupAnimationDone && flowSegments.isNotEmpty)
+                RouteFlowOverlay(
+                  controller: _mapController,
+                  segments: flowSegments,
+                  vehicleOnly: kIsWeb,
+                ),
+              if (mapMarkers.isNotEmpty) MarkerLayer(markers: mapMarkers),
+              // Capa superior dedicada: salida y destino nunca quedan debajo de
+              // rutas, trazos punteados, vehículo, paradas o etiquetas.
+              if (plannerMarkers.isNotEmpty)
+                MarkerLayer(markers: plannerMarkers),
+            ],
+          ),
         ),
         if (!kIsWeb && !_startupAnimationDone && _bundleReady)
           Positioned.fill(
@@ -1325,11 +1684,6 @@ class _PremiumMapBodyState extends ConsumerState<_PremiumMapBody>
               active: true,
               onComplete: _onStartupAnimationComplete,
             ),
-          ),
-        if (!kIsWeb && _startupAnimationDone && flowSegments.isNotEmpty)
-          Positioned.fill(
-            child: RouteFlowOverlay(
-                controller: _mapController, segments: flowSegments),
           ),
         if (_isLoading) MapLoadingOverlay(message: _loadingMessage),
         SafeArea(
@@ -1370,16 +1724,6 @@ class _PremiumMapBodyState extends ConsumerState<_PremiumMapBody>
                     textAlign: TextAlign.center,
                     style:
                         const TextStyle(fontSize: 11, color: AppColors.accent),
-                  ),
-                ),
-              if (_nearbyFilterActive &&
-                  _startupAnimationDone &&
-                  !_showAllFarRoutes)
-                Padding(
-                  padding: const EdgeInsets.only(top: 6),
-                  child: ActionChip(
-                    label: const Text('Ver todas'),
-                    onPressed: _toggleShowAllFar,
                   ),
                 ),
               const SizedBox(height: 10),
@@ -1437,8 +1781,11 @@ class _PremiumMapBodyState extends ConsumerState<_PremiumMapBody>
               detailFor: _detailFor,
               onRouteTap: _focusRoute,
               onShowAll: _showAllRoutes,
+              vehicleFilter: _vehicleFilter,
+              onVehicleFilterChanged: _applyVehicleFilter,
               navAction: _navAction,
               onNavAction: _handleNavAction,
+              onOpenInfo: () => context.push('/legal'),
               nearbyRouteCodes: _nearbyRouteCodes,
               nearbyFilterActive: _nearbyFilterActive && _startupAnimationDone,
             ),
@@ -1454,14 +1801,22 @@ class _DraggablePlannerMarker extends StatelessWidget {
   const _DraggablePlannerMarker({
     required this.kind,
     required this.selected,
+    required this.dragging,
     required this.onSelected,
+    required this.onDragStart,
     required this.onDragUpdate,
+    required this.onDragEnd,
+    required this.onDragCancel,
   });
 
   final _PlannerPoint kind;
   final bool selected;
+  final bool dragging;
   final VoidCallback onSelected;
-  final GestureDragUpdateCallback onDragUpdate;
+  final GestureLongPressStartCallback onDragStart;
+  final GestureLongPressMoveUpdateCallback onDragUpdate;
+  final GestureLongPressEndCallback onDragEnd;
+  final VoidCallback onDragCancel;
 
   @override
   Widget build(BuildContext context) {
@@ -1470,40 +1825,32 @@ class _DraggablePlannerMarker extends StatelessWidget {
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: onSelected,
-      onPanStart: (_) => onSelected(),
-      onPanUpdate: onDragUpdate,
-      child: AnimatedScale(
-        scale: selected ? 1.08 : 1,
-        duration: const Duration(milliseconds: 180),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(10),
-                boxShadow: const [
-                  BoxShadow(color: Color(0x33000000), blurRadius: 8)
-                ],
-              ),
-              child: Text(
-                isOrigin ? 'SALIDA' : 'DESTINO',
-                style: TextStyle(
-                    color: color, fontSize: 9, fontWeight: FontWeight.w900),
+      onLongPressStart: onDragStart,
+      onLongPressMoveUpdate: onDragUpdate,
+      onLongPressEnd: onDragEnd,
+      onLongPressCancel: onDragCancel,
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.end,
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: dragging ? color.withValues(alpha: 0.12) : Colors.white,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: color,
+                width: dragging ? 2.6 : (selected ? 1.8 : 1.2),
               ),
             ),
-            Icon(Icons.location_on_rounded,
-                color: color,
-                size: 42,
-                shadows: const [
-                  Shadow(
-                      color: Color(0x55000000),
-                      blurRadius: 6,
-                      offset: Offset(0, 3)),
-                ]),
-          ],
-        ),
+            child: Text(
+              isOrigin ? 'SALIDA' : 'DESTINO',
+              style: TextStyle(
+                  color: color, fontSize: 9, fontWeight: FontWeight.w900),
+            ),
+          ),
+          Icon(Icons.location_on_rounded,
+              color: color, size: dragging ? 46 : 42),
+        ],
       ),
     );
   }
@@ -1641,7 +1988,7 @@ class _TripPlannerPanel extends StatelessWidget {
                 ),
               ] else ...[
                 Text(
-                  'Arrastra los marcadores o selecciona uno y toca el mapa.',
+                  'Mantén presionado un marcador y arrástralo. Al soltarlo quedará fijo.',
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
                 const SizedBox(height: 12),
