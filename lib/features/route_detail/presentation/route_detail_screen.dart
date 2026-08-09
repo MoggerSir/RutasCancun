@@ -26,7 +26,14 @@ class RouteDetailScreen extends ConsumerWidget {
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, _) => Center(child: Text('Error: $e')),
         data: (detail) => ListView(
-          padding: const EdgeInsets.all(16),
+          padding: EdgeInsets.fromLTRB(
+            16,
+            16,
+            16,
+            // Deja espacio para el FAB "Reportar" y la barra de navegación
+            // del sistema, que de otro modo tapan la última parada.
+            88 + MediaQuery.of(context).padding.bottom,
+          ),
           children: [
             Text(detail.name, style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: 8),
@@ -35,7 +42,10 @@ class RouteDetailScreen extends ConsumerWidget {
               const SizedBox(height: 12),
             ],
             Card(
-              color: Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.3),
+              color: Theme.of(context)
+                  .colorScheme
+                  .primaryContainer
+                  .withValues(alpha: 0.3),
               child: const Padding(
                 padding: EdgeInsets.all(12),
                 child: Text(

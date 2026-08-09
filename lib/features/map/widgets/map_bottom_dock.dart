@@ -16,6 +16,8 @@ class MapBottomDock extends StatefulWidget {
     required this.routeColor,
     required this.onRouteTap,
     required this.onShowAll,
+    required this.onHideAll,
+    required this.allRoutesVisible,
     required this.vehicleFilter,
     required this.onVehicleFilterChanged,
     required this.detailFor,
@@ -32,6 +34,8 @@ class MapBottomDock extends StatefulWidget {
   final Color Function(String code, int index) routeColor;
   final ValueChanged<String> onRouteTap;
   final VoidCallback onShowAll;
+  final VoidCallback onHideAll;
+  final bool allRoutesVisible;
   final RouteVehicleType? vehicleFilter;
   final ValueChanged<RouteVehicleType?> onVehicleFilterChanged;
   final RouteDetail? Function(RouteSummary summary) detailFor;
@@ -92,11 +96,9 @@ class _MapBottomDockState extends State<MapBottomDock>
         (route) => widget.nearbyRouteCodes.contains(route.code),
       );
 
-  bool get _showAllButton =>
-      widget.selectedCode != null ||
-      widget.nearbyFilterActive ||
-      widget.vehicleFilter != null ||
-      widget.navAction == MapNavAction.nightRoutes;
+  // Botón siempre visible: alterna entre mostrar y ocultar todas las
+  // rutas, sin importar si hay un filtro o selección activa.
+  bool get _showToggleButton => true;
 
   List<RouteSummary> get _nearbyRoutes => widget.routes
       .where((r) => widget.nearbyRouteCodes.contains(r.code))
@@ -242,7 +244,7 @@ class _MapBottomDockState extends State<MapBottomDock>
           builder: (context, _) {
             final listH = _listHeight * _expand.value;
             final totalH = MapBottomDock.headerHeight +
-                (_showAllButton ? MapBottomDock.showAllButtonHeight : 0) +
+                (_showToggleButton ? MapBottomDock.showAllButtonHeight : 0) +
                 listH +
                 (_expand.value > 0.01 ? 1 : 0) +
                 MapBottomDock.navHeight +
@@ -371,26 +373,44 @@ class _MapBottomDockState extends State<MapBottomDock>
                         ),
                       ),
                     ),
-                    if (_showAllButton)
+                    if (_showToggleButton)
                       SizedBox(
                         height: MapBottomDock.showAllButtonHeight,
                         child: Padding(
                           padding: const EdgeInsets.fromLTRB(12, 4, 12, 6),
-                          child: FilledButton.tonalIcon(
-                            onPressed: widget.onShowAll,
-                            icon: const Icon(Icons.route_rounded, size: 20),
-                            label: const Text('Ver todas las rutas'),
-                            style: FilledButton.styleFrom(
-                              minimumSize: const Size.fromHeight(44),
-                              textStyle: const TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w800,
-                              ),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(14),
-                              ),
-                            ),
-                          ),
+                          child: widget.allRoutesVisible
+                              ? FilledButton.tonalIcon(
+                                  onPressed: widget.onHideAll,
+                                  icon: const Icon(Icons.visibility_off_rounded,
+                                      size: 20),
+                                  label: const Text('Ocultar todas las rutas'),
+                                  style: FilledButton.styleFrom(
+                                    minimumSize: const Size.fromHeight(44),
+                                    textStyle: const TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(14),
+                                    ),
+                                  ),
+                                )
+                              : FilledButton.tonalIcon(
+                                  onPressed: widget.onShowAll,
+                                  icon:
+                                      const Icon(Icons.route_rounded, size: 20),
+                                  label: const Text('Ver todas las rutas'),
+                                  style: FilledButton.styleFrom(
+                                    minimumSize: const Size.fromHeight(44),
+                                    textStyle: const TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(14),
+                                    ),
+                                  ),
+                                ),
                         ),
                       ),
                     if (_expand.value > 0.01) ...[

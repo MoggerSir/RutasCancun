@@ -2,10 +2,13 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
 import 'package:rutas_cancun/core/theme/app_colors.dart';
 import 'package:rutas_cancun/core/widgets/glass_surface.dart';
 import 'package:rutas_cancun/features/routes/data/routes_repository.dart';
+
+const _currentLocationLabel = 'Ubicación actual';
 
 const presetPoints = <Map<String, dynamic>>[
   {'label': 'Terminal ADO', 'lat': 21.16542, 'lng': -86.85121},
@@ -26,11 +29,147 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   Map<String, dynamic>? _destination;
   bool _originHasText = false;
   bool _destinationHasText = false;
+  bool _locatingOrigin = false;
 
   bool _validPoint(Map<String, dynamic>? point) =>
       point?['lat'] is num &&
       point?['lng'] is num &&
       (point?['label'] as String?)?.trim().isNotEmpty == true;
+
+  Future<void> _useCurrentLocationAsOrigin() async {
+    if (_locatingOrigin) return;
+    setState(() => _locatingOrigin = true);
+    try {
+      final position = await _resolveCurrentPosition();
+      if (position == null || !mounted) return;
+      setState(() {
+        _origin = {
+          'label': _currentLocationLabel,
+          'lat': position.latitude,
+          'lng': position.longitude,
+        };
+        _originHasText = true;
+      });
+    } finally {
+      if (mounted) setState(() => _locatingOrigin = false);
+    }
+  }
+
+  /// Pide permiso de ubicación (con explicación) y GPS activo antes de
+  /// devolver una posición. Devuelve null si el usuario no la concede o
+  /// cancela en cualquier paso; la app sigue funcionando sin esta función.
+  Future<Position?> _resolveCurrentPosition() async {
+    var permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      if (!mounted) return null;
+      final accepted = await showDialog<bool>(
+            context: context,
+            barrierDismissible: false,
+            builder: (dialogContext) => AlertDialog(
+              icon: const Icon(
+                Icons.location_on_outlined,
+                color: AppColors.primary,
+                size: 34,
+              ),
+              title: const Text('Permitir ubicación'),
+              content: const Text(
+                'Rutas Cancún usará tu ubicación para colocarla como punto '
+                'de partida.\n\n'
+                'Solo se usa mientras tienes la app abierta y puedes seguir '
+                'usando la búsqueda sin concederla.',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext, false),
+                  child: const Text('Ahora no'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.pop(dialogContext, true),
+                  child: const Text('Continuar'),
+                ),
+              ],
+            ),
+          ) ??
+          false;
+      if (!accepted) return null;
+      permission = await Geolocator.requestPermission();
+    }
+
+    if (permission == LocationPermission.deniedForever) {
+      if (!mounted) return null;
+      final openSettings = await showDialog<bool>(
+            context: context,
+            builder: (dialogContext) => AlertDialog(
+              icon: const Icon(Icons.settings_outlined),
+              title: const Text('Ubicación bloqueada'),
+              content: const Text(
+                'Android tiene bloqueado este permiso. Actívalo en Ajustes '
+                'y vuelve a intentarlo.',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext, false),
+                  child: const Text('Cancelar'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.pop(dialogContext, true),
+                  child: const Text('Abrir Ajustes'),
+                ),
+              ],
+            ),
+          ) ??
+          false;
+      if (openSettings) await Geolocator.openAppSettings();
+      return null;
+    }
+
+    if (permission == LocationPermission.denied) return null;
+
+    if (!await Geolocator.isLocationServiceEnabled()) {
+      if (!mounted) return null;
+      final openLocationSettings = await showDialog<bool>(
+            context: context,
+            builder: (dialogContext) => AlertDialog(
+              icon: const Icon(Icons.location_disabled_rounded),
+              title: const Text('Ubicación desactivada'),
+              content: const Text(
+                'Activa el GPS del teléfono para usarlo como punto de '
+                'partida.',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext, false),
+                  child: const Text('Cancelar'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.pop(dialogContext, true),
+                  child: const Text('Activar ubicación'),
+                ),
+              ],
+            ),
+          ) ??
+          false;
+      if (openLocationSettings) await Geolocator.openLocationSettings();
+      return null;
+    }
+
+    try {
+      return await Geolocator.getCurrentPosition()
+          .timeout(const Duration(seconds: 12));
+    } catch (_) {
+      final last = await Geolocator.getLastKnownPosition();
+      if (last != null) return last;
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content:
+                Text('No fue posible obtener tu ubicación. Intenta de nuevo.'),
+          ),
+        );
+      }
+      return null;
+    }
+  }
 
   Future<void> _calculateOrExplain() async {
     final originValid = _validPoint(_origin);
@@ -119,7 +258,14 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
       appBar: AppBar(title: const Text('¿A dónde vas?')),
       body: ListView(
         keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+        padding: EdgeInsets.fromLTRB(
+          16,
+          8,
+          16,
+          // Evita que la barra de navegación del sistema tape el botón
+          // "Calcular mi recorrido" al final de la lista.
+          24 + MediaQuery.of(context).padding.bottom,
+        ),
         children: [
           Text(
             'Busca una calle, colonia, comercio o punto de interés en Cancún.',
@@ -141,6 +287,8 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                   onSelected: (point) => setState(() => _origin = point),
                   onTextStateChanged: (hasText) =>
                       setState(() => _originHasText = hasText),
+                  currentLocationLoading: _locatingOrigin,
+                  onUseCurrentLocation: _useCurrentLocationAsOrigin,
                 ),
                 const Padding(
                   padding: EdgeInsets.symmetric(vertical: 8),
@@ -239,6 +387,8 @@ class _PlaceSearchField extends ConsumerStatefulWidget {
     required this.selected,
     required this.onSelected,
     required this.onTextStateChanged,
+    this.onUseCurrentLocation,
+    this.currentLocationLoading = false,
   });
 
   final String title;
@@ -248,6 +398,11 @@ class _PlaceSearchField extends ConsumerStatefulWidget {
   final Map<String, dynamic>? selected;
   final ValueChanged<Map<String, dynamic>?> onSelected;
   final ValueChanged<bool> onTextStateChanged;
+
+  /// Si no es null, muestra un chip de atajo junto al título que llena
+  /// este campo con la ubicación GPS actual del usuario.
+  final VoidCallback? onUseCurrentLocation;
+  final bool currentLocationLoading;
 
   @override
   ConsumerState<_PlaceSearchField> createState() => _PlaceSearchFieldState();
@@ -341,10 +496,51 @@ class _PlaceSearchFieldState extends ConsumerState<_PlaceSearchField> {
 
   @override
   Widget build(BuildContext context) {
+    final isCurrentLocation =
+        widget.selected?['label'] == _currentLocationLabel;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(widget.title, style: const TextStyle(fontWeight: FontWeight.w800)),
+        Row(
+          children: [
+            Text(widget.title,
+                style: const TextStyle(fontWeight: FontWeight.w800)),
+            if (widget.onUseCurrentLocation != null) ...[
+              const Spacer(),
+              ActionChip(
+                avatar: widget.currentLocationLoading
+                    ? const Padding(
+                        padding: EdgeInsets.all(3),
+                        child: SizedBox.square(
+                          dimension: 12,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                      )
+                    : Icon(
+                        Icons.my_location_rounded,
+                        size: 16,
+                        color: isCurrentLocation
+                            ? widget.iconColor
+                            : AppColors.primary,
+                      ),
+                label: const Text(
+                  _currentLocationLabel,
+                  style: TextStyle(fontSize: 12.5),
+                ),
+                visualDensity: VisualDensity.compact,
+                backgroundColor: isCurrentLocation
+                    ? widget.iconColor.withValues(alpha: 0.12)
+                    : null,
+                side: isCurrentLocation
+                    ? BorderSide(color: widget.iconColor.withValues(alpha: 0.4))
+                    : null,
+                onPressed: widget.currentLocationLoading
+                    ? null
+                    : widget.onUseCurrentLocation,
+              ),
+            ],
+          ],
+        ),
         const SizedBox(height: 7),
         TextField(
           controller: _controller,

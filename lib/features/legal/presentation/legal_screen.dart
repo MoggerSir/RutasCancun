@@ -46,7 +46,12 @@ class _LegalPage extends StatelessWidget {
   Widget build(BuildContext context) {
     return SelectionArea(
       child: ListView(
-        padding: const EdgeInsets.fromLTRB(22, 22, 22, 40),
+        padding: EdgeInsets.fromLTRB(
+          22,
+          22,
+          22,
+          40 + MediaQuery.of(context).padding.bottom,
+        ),
         children: children,
       ),
     );

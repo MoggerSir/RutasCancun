@@ -68,24 +68,28 @@ class _ReportSheetState extends ConsumerState<_ReportSheet> {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text('Reportar', style: Theme.of(context).textTheme.titleLarge),
-          const SizedBox(height: 12),
-          if (_sending) const LinearProgressIndicator(),
-          ...reportTypes.map(
-            (t) => ListTile(
-              leading: Icon(t.$3),
-              title: Text(t.$2),
-              onTap: _sending ? null : () => _submit(t.$1),
+    // showModalBottomSheet no agrega el inset inferior automáticamente;
+    // sin SafeArea la barra de navegación del sistema tapa "No pasó".
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text('Reportar', style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: 12),
+            if (_sending) const LinearProgressIndicator(),
+            ...reportTypes.map(
+              (t) => ListTile(
+                leading: Icon(t.$3),
+                title: Text(t.$2),
+                onTap: _sending ? null : () => _submit(t.$1),
+              ),
             ),
-          ),
-          const SizedBox(height: 8),
-        ],
+            const SizedBox(height: 8),
+          ],
+        ),
       ),
     );
   }
