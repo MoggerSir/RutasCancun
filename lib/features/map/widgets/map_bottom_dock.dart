@@ -37,6 +37,7 @@ class MapBottomDock extends StatefulWidget {
   final bool nearbyFilterActive;
 
   static const headerHeight = 58.0;
+  static const showAllButtonHeight = 54.0;
   static const navHeight = 64.0;
   static const tileHeight = 76.0;
   static const maxListHeight = 236.0;
@@ -45,7 +46,8 @@ class MapBottomDock extends StatefulWidget {
   State<MapBottomDock> createState() => _MapBottomDockState();
 }
 
-class _MapBottomDockState extends State<MapBottomDock> with SingleTickerProviderStateMixin {
+class _MapBottomDockState extends State<MapBottomDock>
+    with SingleTickerProviderStateMixin {
   late final AnimationController _ctrl;
   late final Animation<double> _expand;
   bool _expanded = false;
@@ -53,7 +55,8 @@ class _MapBottomDockState extends State<MapBottomDock> with SingleTickerProvider
   @override
   void initState() {
     super.initState();
-    _ctrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 380));
+    _ctrl = AnimationController(
+        vsync: this, duration: const Duration(milliseconds: 380));
     _expand = CurvedAnimation(parent: _ctrl, curve: AppColors.curveSpring);
   }
 
@@ -65,8 +68,10 @@ class _MapBottomDockState extends State<MapBottomDock> with SingleTickerProvider
 
   double get _listHeight {
     if (widget.routes.isEmpty) return 0;
-    final sectionHeaders = _showNearbySection ? (_otherRoutes.isNotEmpty ? 52.0 : 28.0) : 0.0;
-    final tileCount = _showNearbySection ? _listItemCount : widget.routes.length;
+    final sectionHeaders =
+        _showNearbySection ? (_otherRoutes.isNotEmpty ? 52.0 : 28.0) : 0.0;
+    final tileCount =
+        _showNearbySection ? _listItemCount : widget.routes.length;
     final raw = tileCount * MapBottomDock.tileHeight + sectionHeaders + 4;
     return raw.clamp(0, MapBottomDock.maxListHeight);
   }
@@ -186,8 +191,9 @@ class _MapBottomDockState extends State<MapBottomDock> with SingleTickerProvider
     return children;
   }
 
-  String get _title =>
-      widget.selectedCode != null ? 'Ruta ${widget.selectedCode}' : 'Rutas disponibles';
+  String get _title => widget.selectedCode != null
+      ? 'Ruta ${widget.selectedCode}'
+      : 'Rutas disponibles';
 
   String get _subtitle {
     final n = widget.routes.length;
@@ -212,6 +218,9 @@ class _MapBottomDockState extends State<MapBottomDock> with SingleTickerProvider
           builder: (context, _) {
             final listH = _listHeight * _expand.value;
             final totalH = MapBottomDock.headerHeight +
+                (widget.selectedCode != null
+                    ? MapBottomDock.showAllButtonHeight
+                    : 0) +
                 listH +
                 (_expand.value > 0.01 ? 1 : 0) +
                 MapBottomDock.navHeight +
@@ -244,19 +253,22 @@ class _MapBottomDockState extends State<MapBottomDock> with SingleTickerProvider
                               height: 4,
                               margin: const EdgeInsets.only(top: 8, bottom: 4),
                               decoration: BoxDecoration(
-                                color: AppColors.textMuted.withValues(alpha: 0.28),
+                                color:
+                                    AppColors.textMuted.withValues(alpha: 0.28),
                                 borderRadius: BorderRadius.circular(4),
                               ),
                             ),
                             Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 16),
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 16),
                               child: Row(
                                 children: [
                                   Container(
                                     width: 30,
                                     height: 30,
                                     decoration: BoxDecoration(
-                                      color: AppColors.primary.withValues(alpha: 0.1),
+                                      color: AppColors.primary
+                                          .withValues(alpha: 0.1),
                                       borderRadius: BorderRadius.circular(10),
                                     ),
                                     child: Center(
@@ -274,13 +286,15 @@ class _MapBottomDockState extends State<MapBottomDock> with SingleTickerProvider
                                   const SizedBox(width: 10),
                                   Expanded(
                                     child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
                                       children: [
                                         Text(
                                           _title,
                                           maxLines: 1,
                                           overflow: TextOverflow.ellipsis,
-                                          style: MapOverlayStyle.title(context).copyWith(
+                                          style: MapOverlayStyle.title(context)
+                                              .copyWith(
                                             fontSize: 16,
                                             fontWeight: FontWeight.w800,
                                           ),
@@ -299,8 +313,6 @@ class _MapBottomDockState extends State<MapBottomDock> with SingleTickerProvider
                                       ],
                                     ),
                                   ),
-                                  if (widget.selectedCode != null)
-                                    _ChipButton(label: 'Todas', onTap: widget.onShowAll),
                                   const SizedBox(width: 6),
                                   AnimatedRotation(
                                     turns: _expand.value * 0.5,
@@ -310,7 +322,8 @@ class _MapBottomDockState extends State<MapBottomDock> with SingleTickerProvider
                                       width: 30,
                                       height: 30,
                                       decoration: BoxDecoration(
-                                        color: AppColors.textMuted.withValues(alpha: 0.1),
+                                        color: AppColors.textMuted
+                                            .withValues(alpha: 0.1),
                                         borderRadius: BorderRadius.circular(10),
                                       ),
                                       child: const Icon(
@@ -327,6 +340,28 @@ class _MapBottomDockState extends State<MapBottomDock> with SingleTickerProvider
                         ),
                       ),
                     ),
+                    if (widget.selectedCode != null)
+                      SizedBox(
+                        height: MapBottomDock.showAllButtonHeight,
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(12, 4, 12, 6),
+                          child: FilledButton.tonalIcon(
+                            onPressed: widget.onShowAll,
+                            icon: const Icon(Icons.route_rounded, size: 20),
+                            label: const Text('Ver todas las rutas'),
+                            style: FilledButton.styleFrom(
+                              minimumSize: const Size.fromHeight(44),
+                              textStyle: const TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w800,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
                     if (_expand.value > 0.01) ...[
                       SizedBox(
                         height: listH,
@@ -354,35 +389,6 @@ class _MapBottomDockState extends State<MapBottomDock> with SingleTickerProvider
               ),
             );
           },
-        ),
-      ),
-    );
-  }
-}
-
-class _ChipButton extends StatelessWidget {
-  const _ChipButton({required this.label, required this.onTap});
-
-  final String label;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(8),
-          color: AppColors.accent.withValues(alpha: 0.12),
-        ),
-        child: Text(
-          label,
-          style: const TextStyle(
-            fontSize: 10,
-            fontWeight: FontWeight.w700,
-            color: AppColors.primary,
-          ),
         ),
       ),
     );
@@ -422,7 +428,9 @@ class _RouteTile extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(16),
-            color: selected ? AppColors.cardRouteFavorite : AppColors.surfaceElevated,
+            color: selected
+                ? AppColors.cardRouteFavorite
+                : AppColors.surfaceElevated,
             border: Border.all(
               color: selected ? color : AppColors.glassBorder,
               width: selected ? 2 : 1,
@@ -436,7 +444,11 @@ class _RouteTile extends StatelessWidget {
           child: Row(
             children: [
               Container(
-                width: 48,
+                width: summary.code.length <= 3
+                    ? 48
+                    : summary.code.length <= 6
+                        ? 58
+                        : 66,
                 height: 48,
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
@@ -450,15 +462,20 @@ class _RouteTile extends StatelessWidget {
                     ),
                   ],
                 ),
-                child: Text(
-                  summary.code,
-                  maxLines: 1,
-                  overflow: TextOverflow.visible,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w800,
-                    fontSize: 15,
-                    color: Colors.white,
-                    letterSpacing: 0.2,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 5),
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      summary.code,
+                      maxLines: 1,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 15,
+                        color: Colors.white,
+                        letterSpacing: 0.1,
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -484,7 +501,8 @@ class _RouteTile extends StatelessWidget {
                         ),
                         if (isNearby) ...[
                           const SizedBox(width: 4),
-                          Icon(Icons.near_me_rounded, size: 13, color: color.withValues(alpha: 0.85)),
+                          Icon(Icons.near_me_rounded,
+                              size: 13, color: color.withValues(alpha: 0.85)),
                         ],
                       ],
                     ),
@@ -509,7 +527,8 @@ class _RouteTile extends StatelessWidget {
                   if (distance.isNotEmpty)
                     Text(
                       distance,
-                      style: const TextStyle(fontSize: 11, color: AppColors.textMuted),
+                      style: const TextStyle(
+                          fontSize: 11, color: AppColors.textMuted),
                     ),
                 ],
               ),

@@ -394,6 +394,37 @@ class SearchResult {
   final String disclaimer;
 }
 
+class PlaceSuggestion {
+  PlaceSuggestion({
+    required this.id,
+    required this.label,
+    required this.secondaryLabel,
+    required this.lat,
+    required this.lng,
+  });
+
+  factory PlaceSuggestion.fromJson(Map<String, dynamic> json) =>
+      PlaceSuggestion(
+        id: json['id'] as String,
+        label: json['label'] as String,
+        secondaryLabel: json['secondaryLabel'] as String? ?? '',
+        lat: (json['lat'] as num).toDouble(),
+        lng: (json['lng'] as num).toDouble(),
+      );
+
+  final String id;
+  final String label;
+  final String secondaryLabel;
+  final double lat;
+  final double lng;
+
+  Map<String, dynamic> toPoint() => {
+        'label': label,
+        'lat': lat,
+        'lng': lng,
+      };
+}
+
 class JourneyLeg {
   JourneyLeg({
     required this.routeId,
@@ -583,6 +614,18 @@ class RoutesRepository {
       },
     });
     return SearchResult.fromJson(res.data as Map<String, dynamic>);
+  }
+
+  Future<List<PlaceSuggestion>> searchPlaces(String query) async {
+    final clean = query.trim();
+    if (clean.length < 3) return const [];
+    final response = await _dio.get<List<dynamic>>(
+      '/routes/lookup/places',
+      queryParameters: {'q': clean},
+    );
+    return (response.data ?? const [])
+        .map((item) => PlaceSuggestion.fromJson(item as Map<String, dynamic>))
+        .toList();
   }
 
   Future<void> submitReport({
