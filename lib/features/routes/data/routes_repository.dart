@@ -457,6 +457,10 @@ class JourneyLeg {
     required this.boardStop,
     required this.alightStop,
     required this.distanceKm,
+    required this.direction,
+    required this.boardPoint,
+    required this.alightPoint,
+    required this.geometry,
   });
 
   factory JourneyLeg.fromJson(Map<String, dynamic> json) => JourneyLeg(
@@ -466,6 +470,18 @@ class JourneyLeg {
         boardStop: json['boardStop'] as String,
         alightStop: json['alightStop'] as String,
         distanceKm: (json['distanceKm'] as num).toDouble(),
+        direction: json['direction'] as String? ?? 'ida',
+        boardPoint: JourneyPoint.fromJson(
+          json['boardPoint'] as Map<String, dynamic>?,
+        ),
+        alightPoint: JourneyPoint.fromJson(
+          json['alightPoint'] as Map<String, dynamic>?,
+        ),
+        geometry: (json['geometry'] as List? ?? const [])
+            .map((point) =>
+                JourneyPoint.fromJson(point as Map<String, dynamic>?))
+            .whereType<JourneyPoint>()
+            .toList(),
       );
 
   final String routeId;
@@ -474,6 +490,24 @@ class JourneyLeg {
   final String boardStop;
   final String alightStop;
   final double distanceKm;
+  final String direction;
+  final JourneyPoint? boardPoint;
+  final JourneyPoint? alightPoint;
+  final List<JourneyPoint> geometry;
+}
+
+class JourneyPoint {
+  const JourneyPoint({required this.lat, required this.lng});
+
+  static JourneyPoint? fromJson(Map<String, dynamic>? json) {
+    final lat = json?['lat'];
+    final lng = json?['lng'];
+    if (lat is! num || lng is! num) return null;
+    return JourneyPoint(lat: lat.toDouble(), lng: lng.toDouble());
+  }
+
+  final double lat;
+  final double lng;
 }
 
 class JourneyOption {

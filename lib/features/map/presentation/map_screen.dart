@@ -490,6 +490,26 @@ class _PremiumMapBodyState extends ConsumerState<_PremiumMapBody>
     return segments;
   }
 
+  List<({List<LatLng> points, bool isVuelta})> _displaySegments(
+      RouteDetail detail, String routeCode) {
+    if (_planningConfirmed && _plannedJourney != null) {
+      final clipped = _plannedJourney!.legs
+          .where(
+              (leg) => leg.routeCode == routeCode && leg.geometry.length >= 2)
+          .map(
+            (leg) => (
+              points: leg.geometry
+                  .map((point) => LatLng(point.lat, point.lng))
+                  .toList(),
+              isVuelta: leg.direction.contains('vuelta'),
+            ),
+          )
+          .toList();
+      if (clipped.isNotEmpty) return clipped;
+    }
+    return _renderableSegments(detail);
+  }
+
   RouteVisualState _visualStateFor(String code) {
     if (_plannedRouteCodes.contains(code)) return RouteVisualState.selected;
     return visualStateForRoute(
@@ -776,10 +796,10 @@ class _PremiumMapBodyState extends ConsumerState<_PremiumMapBody>
         _selectedCode = codes.first;
       });
       final fitPoints = <LatLng>[origin, destination];
-      for (final summary in widget.routes) {
-        if (codes.contains(summary.code)) {
-          fitPoints.addAll(_routePoints(summary));
-        }
+      for (final leg in journey!.legs) {
+        fitPoints.addAll(
+          leg.geometry.map((point) => LatLng(point.lat, point.lng)),
+        );
       }
       _safeFitCamera(fitPoints);
     } catch (_) {
@@ -949,7 +969,7 @@ class _PremiumMapBodyState extends ConsumerState<_PremiumMapBody>
       final detail = _detailFor(summary);
       if (detail == null) continue;
 
-      for (final seg in _renderableSegments(detail)) {
+      for (final seg in _displaySegments(detail, summary.code)) {
         final dist = _screenDistanceToPolyline(tapPx, seg.points, camera);
         if (dist < _tapTolerancePx) {
           hits[summary.code] =
@@ -1061,16 +1081,19 @@ class _PremiumMapBodyState extends ConsumerState<_PremiumMapBody>
         );
       }
 
-      for (final seg in _renderableSegments(detail)) {
+      for (final seg in _displaySegments(detail, summary.code)) {
         addSegment(seg.points, isVuelta: seg.isVuelta);
       }
     }
     if (_planningConfirmed && _plannedJourney != null) {
-      final firstCode = _plannedJourney!.legs.first.routeCode;
-      final lastCode = _plannedJourney!.legs.last.routeCode;
-      final originJoin = _nearestPointOnRoute(firstCode, _planningOrigin);
-      final destinationJoin =
-          _nearestPointOnRoute(lastCode, _planningDestination);
+      final firstLeg = _plannedJourney!.legs.first;
+      final lastLeg = _plannedJourney!.legs.last;
+      final originJoin = firstLeg.boardPoint == null
+          ? _nearestPointOnRoute(firstLeg.routeCode, _planningOrigin)
+          : LatLng(firstLeg.boardPoint!.lat, firstLeg.boardPoint!.lng);
+      final destinationJoin = lastLeg.alightPoint == null
+          ? _nearestPointOnRoute(lastLeg.routeCode, _planningDestination)
+          : LatLng(lastLeg.alightPoint!.lat, lastLeg.alightPoint!.lng);
       if (_planningOrigin != null && originJoin != null) {
         polylines.add(
           Polyline<String>(
@@ -1090,6 +1113,20 @@ class _PremiumMapBodyState extends ConsumerState<_PremiumMapBody>
             strokeWidth: 4,
             strokeCap: StrokeCap.round,
             pattern: StrokePattern.dashed(segments: const [7, 7]),
+          ),
+        );
+      }
+      for (var index = 0; index < _plannedJourney!.legs.length - 1; index++) {
+        final from = _plannedJourney!.legs[index].alightPoint;
+        final to = _plannedJourney!.legs[index + 1].boardPoint;
+        if (from == null || to == null) continue;
+        polylines.add(
+          Polyline<String>(
+            points: [LatLng(from.lat, from.lng), LatLng(to.lat, to.lng)],
+            color: const Color(0xFF50646D).withValues(alpha: 0.9),
+            strokeWidth: 3.5,
+            strokeCap: StrokeCap.round,
+            pattern: StrokePattern.dashed(segments: const [6, 6]),
           ),
         );
       }
@@ -1127,7 +1164,7 @@ class _PremiumMapBodyState extends ConsumerState<_PremiumMapBody>
       final visual = _visualStateFor(summary.code);
       final dimmed = visual != RouteVisualState.selected;
 
-      for (final seg in _renderableSegments(detail)) {
+      for (final seg in _displaySegments(detail, summary.code)) {
         final showVehicle = !dimmed && !vehicleAssigned && !seg.isVuelta;
         segments.add(
           FlowSegment(
@@ -1200,45 +1237,6 @@ class _PremiumMapBodyState extends ConsumerState<_PremiumMapBody>
       );
     }
 
-    if (_planningMode) {
-      if (_planningOrigin != null) {
-        markers.add(
-          Marker(
-            point: _planningOrigin!,
-            width: 64,
-            height: 76,
-            alignment: Alignment.topCenter,
-            child: _DraggablePlannerMarker(
-              kind: _PlannerPoint.origin,
-              selected: _activePlannerPoint == _PlannerPoint.origin,
-              onSelected: () =>
-                  setState(() => _activePlannerPoint = _PlannerPoint.origin),
-              onDragUpdate: (details) =>
-                  _dragPlannerPoint(_PlannerPoint.origin, details),
-            ),
-          ),
-        );
-      }
-      if (_planningDestination != null) {
-        markers.add(
-          Marker(
-            point: _planningDestination!,
-            width: 64,
-            height: 76,
-            alignment: Alignment.topCenter,
-            child: _DraggablePlannerMarker(
-              kind: _PlannerPoint.destination,
-              selected: _activePlannerPoint == _PlannerPoint.destination,
-              onSelected: () => setState(
-                  () => _activePlannerPoint = _PlannerPoint.destination),
-              onDragUpdate: (details) =>
-                  _dragPlannerPoint(_PlannerPoint.destination, details),
-            ),
-          ),
-        );
-      }
-    }
-
     for (final summary in _visibleRoutes) {
       if (!_isRouteDrawable(summary.code)) continue;
       final detail = _detailFor(summary);
@@ -1249,7 +1247,7 @@ class _PremiumMapBodyState extends ConsumerState<_PremiumMapBody>
       final alpha = _currentAlpha(summary.code);
       if (alpha <= 0.001) continue;
 
-      if (visual == RouteVisualState.selected) {
+      if (visual == RouteVisualState.selected && !_planningConfirmed) {
         for (final stop in detail.stops) {
           markers.add(
             Marker(
@@ -1267,7 +1265,7 @@ class _PremiumMapBodyState extends ConsumerState<_PremiumMapBody>
         }
       }
 
-      for (final seg in _renderableSegments(detail)) {
+      for (final seg in _displaySegments(detail, summary.code)) {
         if (seg.isVuelta || seg.points.length < 2) continue;
         // En la vista general ya existe una lista con los 17 códigos. Mover
         // y componer 17 badges con borde/sombra en cada frame del mapa
@@ -1305,6 +1303,38 @@ class _PremiumMapBodyState extends ConsumerState<_PremiumMapBody>
     return markers;
   }
 
+  List<Marker> _buildPlannerMarkers() {
+    if (!_planningMode) return const [];
+    final markers = <Marker>[];
+
+    void addMarker(LatLng? point, _PlannerPoint kind) {
+      if (point == null) return;
+      markers.add(
+        Marker(
+          point: point,
+          width: 72,
+          height: 76,
+          // La coordenada geográfica corresponde a la punta del pin. El
+          // anclaje superior anterior hacía que el icono pareciera desplazarse
+          // al cambiar la escala del mapa.
+          alignment: Alignment.bottomCenter,
+          child: RepaintBoundary(
+            child: _DraggablePlannerMarker(
+              kind: kind,
+              selected: _activePlannerPoint == kind,
+              onSelected: () => setState(() => _activePlannerPoint = kind),
+              onDragUpdate: (details) => _dragPlannerPoint(kind, details),
+            ),
+          ),
+        ),
+      );
+    }
+
+    addMarker(_planningOrigin, _PlannerPoint.origin);
+    addMarker(_planningDestination, _PlannerPoint.destination);
+    return markers;
+  }
+
   int _badgeIndexClosestToCenter(List<LatLng> points, LatLng? center) {
     if (center == null || points.isEmpty) return points.length ~/ 2;
     var best = 0;
@@ -1325,6 +1355,7 @@ class _PremiumMapBodyState extends ConsumerState<_PremiumMapBody>
     final flowSegments = _buildFlowSegments();
     final polylines = _buildPolylines();
     final mapMarkers = _buildMapMarkers();
+    final plannerMarkers = _buildPlannerMarkers();
     final startupSegments =
         kIsWeb ? const <StartupRevealSegment>[] : _buildStartupSegments();
 
@@ -1349,7 +1380,19 @@ class _PremiumMapBodyState extends ConsumerState<_PremiumMapBody>
                 hitNotifier: _polylineHitNotifier,
                 simplificationTolerance: kIsWeb ? 1.5 : 0.5,
               ),
+            // La animación vive entre el trazo y los marcadores. Antes se
+            // añadía fuera de FlutterMap, al final del Stack principal, y su
+            // línea blanca atravesaba visualmente el letrero de la ruta.
+            if (_startupAnimationDone && flowSegments.isNotEmpty)
+              RouteFlowOverlay(
+                controller: _mapController,
+                segments: flowSegments,
+                vehicleOnly: kIsWeb,
+              ),
             if (mapMarkers.isNotEmpty) MarkerLayer(markers: mapMarkers),
+            // Capa superior dedicada: salida y destino nunca quedan debajo de
+            // rutas, trazos punteados, vehículo, paradas o etiquetas.
+            if (plannerMarkers.isNotEmpty) MarkerLayer(markers: plannerMarkers),
           ],
         ),
         if (!kIsWeb && !_startupAnimationDone && _bundleReady)
@@ -1359,14 +1402,6 @@ class _PremiumMapBodyState extends ConsumerState<_PremiumMapBody>
               segments: startupSegments,
               active: true,
               onComplete: _onStartupAnimationComplete,
-            ),
-          ),
-        if (_startupAnimationDone && flowSegments.isNotEmpty)
-          Positioned.fill(
-            child: RouteFlowOverlay(
-              controller: _mapController,
-              segments: flowSegments,
-              vehicleOnly: kIsWeb,
             ),
           ),
         if (_isLoading) MapLoadingOverlay(message: _loadingMessage),
@@ -1502,38 +1537,24 @@ class _DraggablePlannerMarker extends StatelessWidget {
       onTap: onSelected,
       onPanStart: (_) => onSelected(),
       onPanUpdate: onDragUpdate,
-      child: AnimatedScale(
-        scale: selected ? 1.08 : 1,
-        duration: const Duration(milliseconds: 180),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(10),
-                boxShadow: const [
-                  BoxShadow(color: Color(0x33000000), blurRadius: 8)
-                ],
-              ),
-              child: Text(
-                isOrigin ? 'SALIDA' : 'DESTINO',
-                style: TextStyle(
-                    color: color, fontSize: 9, fontWeight: FontWeight.w900),
-              ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.end,
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: color, width: selected ? 1.8 : 1.2),
             ),
-            Icon(Icons.location_on_rounded,
-                color: color,
-                size: 42,
-                shadows: const [
-                  Shadow(
-                      color: Color(0x55000000),
-                      blurRadius: 6,
-                      offset: Offset(0, 3)),
-                ]),
-          ],
-        ),
+            child: Text(
+              isOrigin ? 'SALIDA' : 'DESTINO',
+              style: TextStyle(
+                  color: color, fontSize: 9, fontWeight: FontWeight.w900),
+            ),
+          ),
+          Icon(Icons.location_on_rounded, color: color, size: 42),
+        ],
       ),
     );
   }
