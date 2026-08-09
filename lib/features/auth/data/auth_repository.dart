@@ -16,10 +16,18 @@ final authInitProvider = FutureProvider<void>((ref) async {
   await prefs.setString(deviceIdKey, deviceId);
 
   final repo = ref.read(authRepositoryProvider);
-  // Token fresco al arrancar (JWT dura 7 días; evita 401 silencioso en prefs viejos)
-  final token = await repo.loginAnonymous(deviceId);
-  await prefs.setString(tokenKey, token);
-  ref.read(authTokenProvider.notifier).state = token;
+  AuthSessionTokens? tokens;
+  final storedRefresh = prefs.getString(refreshTokenKey);
+  if (storedRefresh != null && storedRefresh.isNotEmpty) {
+    try {
+      tokens = await repo.refresh(storedRefresh);
+    } catch (_) {
+      await prefs.remove(refreshTokenKey);
+    }
+  }
+  tokens ??= await repo.loginAnonymous(deviceId);
+  await _persistTokens(prefs, tokens);
+  ref.read(authTokenProvider.notifier).state = tokens.accessToken;
 });
 
 final onboardingDoneProvider = FutureProvider<bool>((ref) async {
@@ -37,8 +45,42 @@ class AuthRepository {
   AuthRepository(this._dio);
   final Dio _dio;
 
-  Future<String> loginAnonymous(String deviceId) async {
-    final res = await _dio.post('/auth/anonymous', data: {'deviceId': deviceId});
-    return res.data['accessToken'] as String;
+  Future<AuthSessionTokens> loginAnonymous(String deviceId) async {
+    final res =
+        await _dio.post('/auth/anonymous', data: {'deviceId': deviceId});
+    return AuthSessionTokens.fromJson(res.data as Map<String, dynamic>);
+  }
+
+  Future<AuthSessionTokens> refresh(String refreshToken) async {
+    final res = await _dio.post(
+      '/auth/refresh',
+      data: {'refreshToken': refreshToken},
+    );
+    return AuthSessionTokens.fromJson(res.data as Map<String, dynamic>);
+  }
+}
+
+class AuthSessionTokens {
+  const AuthSessionTokens({required this.accessToken, this.refreshToken});
+
+  factory AuthSessionTokens.fromJson(Map<String, dynamic> json) {
+    return AuthSessionTokens(
+      accessToken: json['accessToken'] as String,
+      refreshToken: json['refreshToken'] as String?,
+    );
+  }
+
+  final String accessToken;
+  final String? refreshToken;
+}
+
+Future<void> _persistTokens(
+  SharedPreferences prefs,
+  AuthSessionTokens tokens,
+) async {
+  await prefs.setString(tokenKey, tokens.accessToken);
+  final refreshToken = tokens.refreshToken;
+  if (refreshToken != null && refreshToken.isNotEmpty) {
+    await prefs.setString(refreshTokenKey, refreshToken);
   }
 }
