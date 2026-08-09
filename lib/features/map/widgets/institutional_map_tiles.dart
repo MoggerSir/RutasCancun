@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_map/flutter_map.dart';
 
 enum MapTileTheme { day, night }
@@ -8,10 +9,22 @@ class InstitutionalMapTileLayer extends TileLayer {
   InstitutionalMapTileLayer({super.key, this.theme = MapTileTheme.day})
       : super(
           urlTemplate: theme == MapTileTheme.night
-              ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png'
-              : 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}@2x.png',
+              ? (kIsWeb
+                  ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png'
+                  : 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png')
+              : (kIsWeb
+                  ? 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png'
+                  : 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}@2x.png'),
           subdomains: const ['a', 'b', 'c', 'd'],
           userAgentPackageName: 'com.rutascancun.app',
+          // Evita animar y conservar decenas de teselas fuera de pantalla en
+          // CanvasKit. El mapa web prioriza respuesta inmediata durante pan;
+          // las apps nativas conservan el buffer y fade predeterminados.
+          tileDisplay: kIsWeb
+              ? const TileDisplay.instantaneous()
+              : const TileDisplay.fadeIn(),
+          panBuffer: kIsWeb ? 0 : 1,
+          keepBuffer: kIsWeb ? 1 : 2,
         );
 
   final MapTileTheme theme;
@@ -29,16 +42,35 @@ class VividMapTiles extends StatelessWidget {
   final MapTileTheme theme;
 
   static const _saturationBoost = ColorFilter.matrix(<double>[
-    1.275, -0.250, -0.025, 0, 0,
-    -0.075, 1.100, -0.025, 0, 0,
-    -0.075, -0.250, 1.325, 0, 0,
-    0, 0, 0, 1, 0,
+    1.275,
+    -0.250,
+    -0.025,
+    0,
+    0,
+    -0.075,
+    1.100,
+    -0.025,
+    0,
+    0,
+    -0.075,
+    -0.250,
+    1.325,
+    0,
+    0,
+    0,
+    0,
+    0,
+    1,
+    0,
   ]);
 
   @override
   Widget build(BuildContext context) {
     final tiles = InstitutionalMapTileLayer(theme: theme);
-    if (theme == MapTileTheme.night) return tiles;
+    // ColorFiltered sobre todas las teselas obliga a CanvasKit a crear una
+    // capa de pantalla completa. En web usamos Voyager sin filtro: mantiene
+    // el mapa legible y reduce mucho el coste durante pan y zoom.
+    if (theme == MapTileTheme.night || kIsWeb) return tiles;
     // RepaintBoundary fuerza que las teselas (cada una con su propio fade-in
     // al cargar) se aplanen a una sola textura ANTES del filtro de color —
     // sin esto, Skia filtra cada tesela animada por separado y el resultado

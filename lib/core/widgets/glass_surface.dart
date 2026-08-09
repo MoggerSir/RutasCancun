@@ -1,5 +1,6 @@
 import 'dart:ui';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:rutas_cancun/core/theme/app_colors.dart';
 
@@ -30,45 +31,54 @@ class GlassSurface extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final decoration = forMapOverlay ? _mapOverlayDecoration() : _standardDecoration();
+    final decoration =
+        forMapOverlay ? _mapOverlayDecoration() : _standardDecoration();
 
-    final glass = ClipRRect(
-      borderRadius: borderRadius,
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: blur, sigmaY: blur),
-        child: DecoratedBox(
-          decoration: decoration,
-          child: Stack(
-            children: [
-              Positioned(
-                top: 0,
-                left: 16,
-                right: 16,
-                child: Container(
-                  height: 1,
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: forMapOverlay
-                          ? [
-                              AppColors.primary.withValues(alpha: 0.12),
-                              Colors.transparent,
-                            ]
-                          : [
-                              Colors.white.withValues(alpha: 0.85),
-                              Colors.transparent,
-                            ],
-                    ),
-                  ),
+    final content = DecoratedBox(
+      decoration: decoration,
+      child: Stack(
+        children: [
+          Positioned(
+            top: 0,
+            left: 16,
+            right: 16,
+            child: Container(
+              height: 1,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: forMapOverlay
+                      ? [
+                          AppColors.primary.withValues(alpha: 0.12),
+                          Colors.transparent,
+                        ]
+                      : [
+                          Colors.white.withValues(alpha: 0.85),
+                          Colors.transparent,
+                        ],
                 ),
               ),
-              Padding(padding: padding ?? EdgeInsets.zero, child: child),
-            ],
+            ),
           ),
-        ),
+          Padding(padding: padding ?? EdgeInsets.zero, child: child),
+        ],
       ),
     );
 
-    final wrapped = margin != null ? Padding(padding: margin!, child: glass) : glass;
+    // Un BackdropFilter grande sobre el mapa vuelve a procesar todas las
+    // teselas que quedan detrás en cada movimiento. En navegador usamos una
+    // superficie opaca/translúcida equivalente, sin blur en tiempo real.
+    final glass = ClipRRect(
+      borderRadius: borderRadius,
+      child: kIsWeb
+          ? content
+          : BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: blur, sigmaY: blur),
+              child: content,
+            ),
+    );
+
+    final wrapped =
+        margin != null ? Padding(padding: margin!, child: glass) : glass;
 
     if (onTap == null) return wrapped;
 
@@ -123,7 +133,8 @@ class GlassSurface extends StatelessWidget {
           fill.withValues(alpha: 0.58),
         ],
       ),
-      border: Border.all(color: Colors.white.withValues(alpha: 0.55), width: 1.2),
+      border:
+          Border.all(color: Colors.white.withValues(alpha: 0.55), width: 1.2),
       boxShadow: [
         BoxShadow(
           color: AppColors.primary.withValues(alpha: 0.10),
@@ -157,6 +168,7 @@ abstract final class MapOverlayStyle {
   static TextStyle label({bool selected = false}) => TextStyle(
         fontSize: 11,
         fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
-        color: selected ? AppColors.mapOverlayText : AppColors.mapOverlayTextMuted,
+        color:
+            selected ? AppColors.mapOverlayText : AppColors.mapOverlayTextMuted,
       );
 }

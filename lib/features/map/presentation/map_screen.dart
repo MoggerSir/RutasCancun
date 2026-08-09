@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -213,7 +214,10 @@ class _PremiumMapBodyState extends ConsumerState<_PremiumMapBody>
   LatLng? _userLocation;
   StreamSubscription<Position>? _locationSub;
   bool _bundleReady = false;
-  bool _startupAnimationDone = false;
+  // CanvasKit recompone toda la escena del mapa por cada frame animado. En
+  // web mostramos las rutas de inmediato y mantenemos el mapa completamente
+  // estático cuando el usuario no está interactuando.
+  bool _startupAnimationDone = kIsWeb;
   bool _nearbyFilterActive = false;
   bool _showAllFarRoutes = false;
   Set<String> _nearbyRouteCodes = {};
@@ -472,6 +476,7 @@ class _PremiumMapBodyState extends ConsumerState<_PremiumMapBody>
   /// Valor de opacidad actualmente en pantalla para [code], interpolado
   /// entre el estado previo y el nuevo mientras corre `_visualFadeCtrl`.
   double _currentAlpha(String code) {
+    if (kIsWeb) return _targetAlphaFor(code);
     final to = _alphaTo[code] ?? _targetAlphaFor(code);
     final from = _alphaFrom[code];
     if (from == null) return to;
@@ -490,6 +495,16 @@ class _PremiumMapBodyState extends ConsumerState<_PremiumMapBody>
     final changed =
         !sameSize || targets.entries.any((e) => _alphaTo[e.key] != e.value);
     if (!changed) return;
+
+    // Evita reconstruir todas las polilíneas durante 380 ms en navegador.
+    // El cambio inmediato cuesta un solo frame y conserva el fundido en las
+    // aplicaciones móviles nativas, donde el compositor es más eficiente.
+    if (kIsWeb) {
+      _alphaFrom = targets;
+      _alphaTo = targets;
+      _visualFadeCtrl.value = 1;
+      return;
+    }
 
     final snapshot = <String, double>{
       for (final code in targets.keys) code: _currentAlpha(code),
@@ -968,13 +983,15 @@ class _PremiumMapBodyState extends ConsumerState<_PremiumMapBody>
       final alpha = _currentAlpha(summary.code);
       if (alpha <= 0.001) continue;
 
-      final width = visual == RouteVisualState.selected ? 7.0 : 4.5;
+      final width = visual == RouteVisualState.selected
+          ? (kIsWeb ? 6.0 : 7.0)
+          : (kIsWeb ? 3.25 : 4.5);
 
       void addSegment(List<LatLng> pts, {bool isVuelta = false}) {
         if (pts.length < 2) return;
         // Halo de color suave y ancho detrás de la ruta seleccionada — la
         // separa claramente del resto del mapa (glow, look "premium").
-        if (visual == RouteVisualState.selected) {
+        if (visual == RouteVisualState.selected && !kIsWeb) {
           polylines.add(
             Polyline<String>(
               points: pts,
@@ -986,35 +1003,27 @@ class _PremiumMapBodyState extends ConsumerState<_PremiumMapBody>
             ),
           );
         }
-        polylines.add(
-          Polyline<String>(
-            points: pts,
-            hitValue: summary.code,
-            color: Colors.white.withValues(alpha: alpha * 0.92),
-            strokeWidth: width + 4,
-            strokeCap: StrokeCap.round,
-            strokeJoin: StrokeJoin.round,
-          ),
-        );
-        polylines.add(
-          Polyline<String>(
-            points: pts,
-            hitValue: summary.code,
-            color: Color.lerp(color, Colors.black, 0.15)!
-                .withValues(alpha: alpha * 0.35),
-            strokeWidth: width + 1.5,
-            strokeCap: StrokeCap.round,
-            strokeJoin: StrokeJoin.round,
-          ),
-        );
+        // flutter_map puede dibujar línea y borde a partir de una sola
+        // geometría. Antes se enviaban tres polilíneas completas (blanca,
+        // sombra oscura y color) por cada recorrido: 51 geometrías para 17
+        // rutas. El borde nativo conserva la separación visual con dos
+        // pasadas de pintura y sin triplicar proyección, culling e hit-test.
         polylines.add(
           Polyline<String>(
             points: pts,
             hitValue: summary.code,
             color: color.withValues(alpha: alpha),
             strokeWidth: isVuelta ? width - 1 : width,
-            strokeCap: StrokeCap.round,
-            strokeJoin: StrokeJoin.round,
+            borderColor: Colors.white.withValues(alpha: alpha * 0.9),
+            borderStrokeWidth: kIsWeb
+                ? (visual == RouteVisualState.selected ? 1.5 : 0)
+                : (visual == RouteVisualState.selected ? 3 : 2),
+            strokeCap: kIsWeb && visual != RouteVisualState.selected
+                ? StrokeCap.butt
+                : StrokeCap.round,
+            strokeJoin: kIsWeb && visual != RouteVisualState.selected
+                ? StrokeJoin.miter
+                : StrokeJoin.round,
             pattern: isVuelta
                 ? StrokePattern.dashed(segments: const [12, 10])
                 : const StrokePattern.solid(),
@@ -1230,6 +1239,11 @@ class _PremiumMapBodyState extends ConsumerState<_PremiumMapBody>
 
       for (final seg in _renderableSegments(detail)) {
         if (seg.isVuelta || seg.points.length < 2) continue;
+        // En la vista general ya existe una lista con los 17 códigos. Mover
+        // y componer 17 badges con borde/sombra en cada frame del mapa
+        // generaba ruido visual y trabajo innecesario en web; el badge
+        // reaparece al seleccionar una ruta.
+        if (kIsWeb && visual != RouteVisualState.selected) continue;
         final midIdx = _badgeIndexClosestToCenter(seg.points, center);
         final mid = seg.points[midIdx];
         markers.add(
@@ -1273,10 +1287,11 @@ class _PremiumMapBodyState extends ConsumerState<_PremiumMapBody>
   @override
   Widget build(BuildContext context) {
     _syncVisualFade();
-    final flowSegments = _buildFlowSegments();
+    final flowSegments = kIsWeb ? const <FlowSegment>[] : _buildFlowSegments();
     final polylines = _buildPolylines();
     final mapMarkers = _buildMapMarkers();
-    final startupSegments = _buildStartupSegments();
+    final startupSegments =
+        kIsWeb ? const <StartupRevealSegment>[] : _buildStartupSegments();
 
     return Stack(
       fit: StackFit.expand,
@@ -1297,11 +1312,12 @@ class _PremiumMapBodyState extends ConsumerState<_PremiumMapBody>
               PolylineLayer(
                 polylines: polylines,
                 hitNotifier: _polylineHitNotifier,
+                simplificationTolerance: kIsWeb ? 1.5 : 0.5,
               ),
             if (mapMarkers.isNotEmpty) MarkerLayer(markers: mapMarkers),
           ],
         ),
-        if (!_startupAnimationDone && _bundleReady)
+        if (!kIsWeb && !_startupAnimationDone && _bundleReady)
           Positioned.fill(
             child: RouteStartupRevealOverlay(
               controller: _mapController,
@@ -1310,7 +1326,7 @@ class _PremiumMapBodyState extends ConsumerState<_PremiumMapBody>
               onComplete: _onStartupAnimationComplete,
             ),
           ),
-        if (_startupAnimationDone)
+        if (!kIsWeb && _startupAnimationDone && flowSegments.isNotEmpty)
           Positioned.fill(
             child: RouteFlowOverlay(
                 controller: _mapController, segments: flowSegments),
