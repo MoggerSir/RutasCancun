@@ -20,16 +20,14 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     _OnboardPageData(
       icon: 'assets/icons/bus.svg',
       title: 'Rutas Cancún',
-      body:
-          'Consulta combis y camiones con datos oficiales y comunitarios. '
+      body: 'Consulta combis y camiones con datos recopilados y comunitarios. '
           'Encuentra la mejor ruta por cobertura, distancia y servicio nocturno.',
       accent: AppColors.primary,
     ),
     _OnboardPageData(
       icon: 'assets/icons/group.svg',
       title: 'Tu reporte ayuda a otros',
-      body:
-          'Los reportes son de la comunidad — tu aporte importa. '
+      body: 'Los reportes son de la comunidad — tu aporte importa. '
           'Indica si el camión va lleno, pasó recién o hubo un problema.',
       accent: AppColors.secondary,
     ),
@@ -69,12 +67,14 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           Positioned(
             top: -120,
             right: -80,
-            child: _GlowOrb(color: AppColors.primary.withValues(alpha: 0.18), size: 280),
+            child: _GlowOrb(
+                color: AppColors.primary.withValues(alpha: 0.18), size: 280),
           ),
           Positioned(
             bottom: 80,
             left: -60,
-            child: _GlowOrb(color: AppColors.secondary.withValues(alpha: 0.10), size: 220),
+            child: _GlowOrb(
+                color: AppColors.secondary.withValues(alpha: 0.10), size: 220),
           ),
           SafeArea(
             child: Column(
@@ -106,7 +106,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                       const Spacer(),
                       FilledButton(
                         onPressed: _next,
-                        child: Text(_page == _pages.length - 1 ? 'Empezar' : 'Siguiente'),
+                        child: Text(_page == _pages.length - 1
+                            ? 'Empezar'
+                            : 'Siguiente'),
                       ),
                     ],
                   ),
@@ -163,7 +165,9 @@ class _OnboardPage extends StatelessWidget {
                       ],
                     ),
                     boxShadow: [
-                      BoxShadow(color: data.accent.withValues(alpha: 0.35), blurRadius: 24),
+                      BoxShadow(
+                          color: data.accent.withValues(alpha: 0.35),
+                          blurRadius: 24),
                     ],
                   ),
                   alignment: Alignment.center,

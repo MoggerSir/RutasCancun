@@ -24,6 +24,94 @@ class SearchScreen extends ConsumerStatefulWidget {
 class _SearchScreenState extends ConsumerState<SearchScreen> {
   Map<String, dynamic>? _origin;
   Map<String, dynamic>? _destination;
+  bool _originHasText = false;
+  bool _destinationHasText = false;
+
+  bool _validPoint(Map<String, dynamic>? point) =>
+      point?['lat'] is num &&
+      point?['lng'] is num &&
+      (point?['label'] as String?)?.trim().isNotEmpty == true;
+
+  Future<void> _calculateOrExplain() async {
+    final originValid = _validPoint(_origin);
+    final destinationValid = _validPoint(_destination);
+    if (originValid && destinationValid) {
+      context.push('/search/results', extra: {
+        'origin': _origin,
+        'destination': _destination,
+      });
+      return;
+    }
+
+    final missing = !originValid && !destinationValid
+        ? 'el punto de partida y el destino'
+        : !originValid
+            ? 'el punto de partida'
+            : 'el destino';
+    final typedWithoutSelection = (!originValid && _originHasText) ||
+        (!destinationValid && _destinationHasText);
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(26)),
+        child: Padding(
+          padding: const EdgeInsets.all(22),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFF0DB),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: const Icon(Icons.touch_app_rounded,
+                    color: Color(0xFFD77900)),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Selecciona una sugerencia',
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                typedWithoutSelection
+                    ? 'Escribiste $missing, pero todavía debes tocar una de las opciones que aparece debajo del campo.'
+                    : 'Falta confirmar $missing tocando una de las sugerencias del buscador.',
+                style: const TextStyle(color: AppColors.textMuted, height: 1.4),
+              ),
+              const SizedBox(height: 16),
+              const _SearchAdvice(
+                icon: Icons.location_searching_rounded,
+                text:
+                    'El texto por sí solo no contiene una coordenada verificada y podría marcar otro lugar.',
+              ),
+              const _SearchAdvice(
+                icon: Icons.fact_check_outlined,
+                text:
+                    'Comprueba dos veces el nombre completo, la calle y la colonia antes de elegir.',
+              ),
+              const _SearchAdvice(
+                icon: Icons.content_copy_rounded,
+                text:
+                    'Puede haber comercios o calles con nombres muy parecidos en zonas diferentes.',
+              ),
+              const SizedBox(height: 18),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  child: const Text('Entendido, revisar'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -51,6 +139,8 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                   iconColor: const Color(0xFF13A66A),
                   selected: _origin,
                   onSelected: (point) => setState(() => _origin = point),
+                  onTextStateChanged: (hasText) =>
+                      setState(() => _originHasText = hasText),
                 ),
                 const Padding(
                   padding: EdgeInsets.symmetric(vertical: 8),
@@ -63,6 +153,33 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                   iconColor: const Color(0xFFE94F55),
                   selected: _destination,
                   onSelected: (point) => setState(() => _destination = point),
+                  onTextStateChanged: (hasText) =>
+                      setState(() => _destinationHasText = hasText),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: AppColors.primary.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(14),
+              border:
+                  Border.all(color: AppColors.primary.withValues(alpha: 0.22)),
+            ),
+            child: const Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.info_outline_rounded,
+                    size: 20, color: AppColors.primary),
+                SizedBox(width: 9),
+                Expanded(
+                  child: Text(
+                    'Toca una sugerencia en ambos campos y verifica calle y colonia. Escribir solamente el nombre no confirma la ubicación.',
+                    style: TextStyle(
+                        color: AppColors.textMuted, fontSize: 12, height: 1.35),
+                  ),
                 ),
               ],
             ),
@@ -82,9 +199,15 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                 label: Text(point['label'] as String),
                 onPressed: () {
                   if (_origin == null) {
-                    setState(() => _origin = point);
+                    setState(() {
+                      _origin = point;
+                      _originHasText = true;
+                    });
                   } else {
-                    setState(() => _destination = point);
+                    setState(() {
+                      _destination = point;
+                      _destinationHasText = true;
+                    });
                   }
                 },
               );
@@ -92,12 +215,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
           ),
           const SizedBox(height: 24),
           FilledButton.icon(
-            onPressed: _origin != null && _destination != null
-                ? () => context.push('/search/results', extra: {
-                      'origin': _origin,
-                      'destination': _destination,
-                    })
-                : null,
+            onPressed: _calculateOrExplain,
             icon: const Icon(Icons.route_rounded),
             label: const Text('Calcular mi recorrido'),
             style: FilledButton.styleFrom(
@@ -120,6 +238,7 @@ class _PlaceSearchField extends ConsumerStatefulWidget {
     required this.iconColor,
     required this.selected,
     required this.onSelected,
+    required this.onTextStateChanged,
   });
 
   final String title;
@@ -128,6 +247,7 @@ class _PlaceSearchField extends ConsumerStatefulWidget {
   final Color iconColor;
   final Map<String, dynamic>? selected;
   final ValueChanged<Map<String, dynamic>?> onSelected;
+  final ValueChanged<bool> onTextStateChanged;
 
   @override
   ConsumerState<_PlaceSearchField> createState() => _PlaceSearchFieldState();
@@ -167,6 +287,7 @@ class _PlaceSearchFieldState extends ConsumerState<_PlaceSearchField> {
 
   void _onChanged(String value) {
     _debounce?.cancel();
+    widget.onTextStateChanged(value.trim().isNotEmpty);
     if (widget.selected?['label'] != value) widget.onSelected(null);
     if (value.trim().length < 3) {
       setState(() {
@@ -210,6 +331,7 @@ class _PlaceSearchFieldState extends ConsumerState<_PlaceSearchField> {
     _debounce?.cancel();
     _controller.text = suggestion.label;
     widget.onSelected(suggestion.toPoint());
+    widget.onTextStateChanged(true);
     setState(() {
       _suggestions = const [];
       _error = null;
@@ -250,8 +372,36 @@ class _PlaceSearchFieldState extends ConsumerState<_PlaceSearchField> {
                       )
                     : null,
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(14),
+              borderSide: BorderSide(
+                color: widget.selected == null
+                    ? AppColors.glassBorder
+                    : widget.iconColor,
+                width: widget.selected == null ? 1 : 1.8,
+              ),
+            ),
           ),
         ),
+        if (widget.selected != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 6, left: 4),
+            child: Row(
+              children: [
+                Icon(Icons.check_circle_rounded,
+                    size: 15, color: widget.iconColor),
+                const SizedBox(width: 5),
+                Text(
+                  'Ubicación seleccionada y confirmada',
+                  style: TextStyle(
+                    color: widget.iconColor,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
         if (_error != null)
           Padding(
             padding: const EdgeInsets.only(top: 7, left: 4),
@@ -287,6 +437,34 @@ class _PlaceSearchFieldState extends ConsumerState<_PlaceSearchField> {
             ),
           ),
       ],
+    );
+  }
+}
+
+class _SearchAdvice extends StatelessWidget {
+  const _SearchAdvice({required this.icon, required this.text});
+
+  final IconData icon;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 19, color: AppColors.primary),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              text,
+              style: const TextStyle(
+                  color: AppColors.textMuted, fontSize: 13, height: 1.35),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Icono de Rutas Cancún">
+  <defs>
+    <linearGradient id="bg" x1="72" y1="48" x2="440" y2="464" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0F566B"/>
+      <stop offset="1" stop-color="#083847"/>
+    </linearGradient>
+    <linearGradient id="route" x1="128" y1="378" x2="410" y2="112" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#27C6B8"/>
+      <stop offset="1" stop-color="#8BE3B7"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="118" fill="url(#bg)"/>
+  <path d="M92 361c66 0 67-92 132-92h64c76 0 52-118 132-118" fill="none" stroke="url(#route)" stroke-width="34" stroke-linecap="round"/>
+  <circle cx="93" cy="361" r="22" fill="#F9FBF7"/>
+  <circle cx="420" cy="151" r="22" fill="#F9FBF7"/>
+  <rect x="145" y="116" width="222" height="278" rx="58" fill="#F9FBF7"/>
+  <rect x="176" y="151" width="160" height="103" rx="24" fill="#BFE7ED"/>
+  <path d="M256 151v103" stroke="#0F566B" stroke-width="14"/>
+  <rect x="176" y="282" width="160" height="28" rx="14" fill="#27C6B8"/>
+  <circle cx="195" cy="344" r="20" fill="#0F566B"/>
+  <circle cx="317" cy="344" r="20" fill="#0F566B"/>
+  <path d="M182 394v25M330 394v25" stroke="#F9FBF7" stroke-width="20" stroke-linecap="round"/>
+</svg>

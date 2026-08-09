@@ -217,7 +217,8 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen>
           point: point,
           width: 82,
           height: 72,
-          alignment: Alignment.bottomCenter,
+          alignment: Alignment.topCenter,
+          rotate: true,
           child: Column(
             mainAxisAlignment: MainAxisAlignment.end,
             children: [
@@ -260,9 +261,16 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen>
         children: [
           FlutterMap(
             mapController: _mapController,
-            options: MapOptions(initialCenter: _origin, initialZoom: 12.5),
+            options: MapOptions(
+              initialCenter: _origin,
+              initialZoom: 12.5,
+              interactionOptions: const InteractionOptions(
+                flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
+              ),
+            ),
             children: [
               const VividMapTiles(),
+              const MapAttribution(),
               if (_selectedJourney != null)
                 PolylineLayer(
                   polylines: _journeyPolylines(),

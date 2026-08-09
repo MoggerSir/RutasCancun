@@ -21,6 +21,7 @@ class MapBottomDock extends StatefulWidget {
     required this.detailFor,
     required this.navAction,
     required this.onNavAction,
+    required this.onOpenInfo,
     this.collapsedHint,
     this.nearbyRouteCodes = const {},
     this.nearbyFilterActive = false,
@@ -36,6 +37,7 @@ class MapBottomDock extends StatefulWidget {
   final RouteDetail? Function(RouteSummary summary) detailFor;
   final MapNavAction? navAction;
   final ValueChanged<MapNavAction> onNavAction;
+  final VoidCallback onOpenInfo;
   final String? collapsedHint;
   final Set<String> nearbyRouteCodes;
   final bool nearbyFilterActive;
@@ -334,6 +336,15 @@ class _MapBottomDockState extends State<MapBottomDock>
                                     ),
                                   ),
                                   const SizedBox(width: 6),
+                                  IconButton(
+                                    onPressed: widget.onOpenInfo,
+                                    tooltip:
+                                        'Información, privacidad y términos',
+                                    icon:
+                                        const Icon(Icons.info_outline_rounded),
+                                    iconSize: 21,
+                                    visualDensity: VisualDensity.compact,
+                                  ),
                                   AnimatedRotation(
                                     turns: _expand.value * 0.5,
                                     duration: const Duration(milliseconds: 380),
