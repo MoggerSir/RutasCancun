@@ -65,16 +65,16 @@ class _MapBottomDockState extends State<MapBottomDock>
   // bezier de duración fija: la velocidad de arrastre se transmite tal
   // cual al soltar, y el asentamiento final varía según qué tan lejos
   // esté del reposo — así se siente orgánico en vez de mecánico. La
-  // proporción de amortiguamiento (0.68) deja un rebote leve pero
-  // perceptible: se nota, sin llegar al "boing" de un resorte muy suelto.
+  // proporción de amortiguamiento (0.55) deja un rebote elástico bien
+  // perceptible — el "toque premium" pedido — sin llegar a oscilar tanto
+  // que se sienta descontrolado (rigidez 340 lo trae de vuelta rápido).
   static final _spring = SpringDescription.withDampingRatio(
     mass: 1,
-    stiffness: 420,
-    ratio: 0.68,
+    stiffness: 320,
+    ratio: 0.5,
   );
 
   late final AnimationController _ctrl;
-  late final ScrollController _routeListScrollCtrl;
   Animation<double> get _expand => _ctrl;
   bool _expanded = false;
 
@@ -82,7 +82,6 @@ class _MapBottomDockState extends State<MapBottomDock>
   void initState() {
     super.initState();
     _ctrl = AnimationController(vsync: this);
-    _routeListScrollCtrl = ScrollController();
   }
 
   /// Anima `_ctrl` hasta [target] con el resorte físico, arrancando desde
@@ -97,7 +96,6 @@ class _MapBottomDockState extends State<MapBottomDock>
   @override
   void dispose() {
     _ctrl.dispose();
-    _routeListScrollCtrl.dispose();
     super.dispose();
   }
 
@@ -183,13 +181,6 @@ class _MapBottomDockState extends State<MapBottomDock>
   }
 
   List<Widget> _buildRouteListChildren() {
-    // Cursor con la posición vertical acumulada dentro de la lista — se
-    // usa para saber, sin medir nada (ni RenderBox ni GlobalKey), en qué
-    // punto del scroll aparece cada fila. Es aritmética simple con las
-    // mismas alturas que ya definen el tamaño del panel en `_listHeight`,
-    // así que no hay una segunda fuente de verdad que se pueda desincronizar.
-    var cursor = 96.0; // alto aproximado de _VehicleFilterBar
-
     final children = <Widget>[
       _VehicleFilterBar(
         selected: widget.vehicleFilter,
@@ -198,28 +189,18 @@ class _MapBottomDockState extends State<MapBottomDock>
     ];
 
     void addTile(RouteSummary r, {required bool isNearby}) {
-      if (children.isNotEmpty) {
-        children.add(const SizedBox(height: 5));
-        cursor += 5;
-      }
+      if (children.isNotEmpty) children.add(const SizedBox(height: 5));
       final globalIndex = widget.routes.indexOf(r);
       children.add(
-        _ScrollCascadeTile(
-          scrollController: _routeListScrollCtrl,
-          topOffset: cursor,
-          itemHeight: MapBottomDock.tileHeight,
-          viewportHeight: _listHeight,
-          child: _RouteTile(
-            summary: r,
-            detail: widget.detailFor(r),
-            color: widget.routeColor(r.code, globalIndex),
-            selected: widget.selectedCode == r.code,
-            onTap: () => widget.onRouteTap(r.code),
-            isNearby: isNearby,
-          ),
+        _RouteTile(
+          summary: r,
+          detail: widget.detailFor(r),
+          color: widget.routeColor(r.code, globalIndex),
+          selected: widget.selectedCode == r.code,
+          onTap: () => widget.onRouteTap(r.code),
+          isNearby: isNearby,
         ),
       );
-      cursor += MapBottomDock.tileHeight;
     }
 
     if (!_showNearbySection) {
@@ -242,13 +223,11 @@ class _MapBottomDockState extends State<MapBottomDock>
         ),
       ),
     );
-    cursor += 28;
     for (final r in _nearbyRoutes) {
       addTile(r, isNearby: true);
     }
     if (_otherRoutes.isNotEmpty) {
       children.add(const SizedBox(height: 8));
-      cursor += 8;
       children.add(
         const Padding(
           padding: EdgeInsets.fromLTRB(4, 2, 4, 6),
@@ -262,7 +241,6 @@ class _MapBottomDockState extends State<MapBottomDock>
           ),
         ),
       );
-      cursor += 24;
       for (final r in _otherRoutes) {
         addTile(r, isNearby: false);
       }
@@ -314,15 +292,19 @@ class _MapBottomDockState extends State<MapBottomDock>
             // Se usa sólo como transform decorativo — el tamaño real del
             // panel (totalH) ya quedó a salvo arriba con el valor recortado,
             // así que este "pasadito de más" nunca puede volverse una
-            // altura negativa; sólo se ve como un leve estirón/rebote.
+            // altura negativa. Al abrir se ve como un estirón elástico
+            // (como jalar una liga); al cerrar, además de caer un poco de
+            // más (dip) se comprime levemente (squash) antes de asentarse
+            // — el clásico rebote de pelota, el toque premium pedido.
             final overshoot = _expand.value - expandClamped;
-            final stretch = overshoot > 0 ? 1 + overshoot * 0.045 : 1.0;
-            final dip = overshoot < 0 ? -overshoot * 30 : 0.0;
+            final stretch = overshoot > 0 ? 1 + overshoot * 0.14 : 1.0;
+            final squash = overshoot < 0 ? 1 + overshoot * 0.07 : 1.0;
+            final dip = overshoot < 0 ? -overshoot * 55 : 0.0;
 
             return Transform.translate(
               offset: Offset(0, dip),
               child: Transform.scale(
-                scale: stretch,
+                scale: stretch * squash,
                 alignment: Alignment.bottomCenter,
                 child: SizedBox(
                   height: totalH,
@@ -503,7 +485,6 @@ class _MapBottomDockState extends State<MapBottomDock>
                           SizedBox(
                             height: listH,
                             child: ListView(
-                              controller: _routeListScrollCtrl,
                               padding: const EdgeInsets.fromLTRB(10, 0, 10, 6),
                               physics: _expanded
                                   ? const BouncingScrollPhysics()
@@ -531,62 +512,6 @@ class _MapBottomDockState extends State<MapBottomDock>
           },
         ),
       ),
-    );
-  }
-}
-
-/// Aparición gradual de una fila conforme entra o sale por los bordes del
-/// área visible al hacer scroll.
-///
-/// Antes esto se medía con `RenderBox.localToGlobal` en cada notificación
-/// de scroll, para las ~17 filas a la vez: caro (recorre el árbol de
-/// renderizado fila por fila) y, si algo no llegaba a estar "attached" a
-/// tiempo, la fila se quedaba invisible para siempre. Aquí es aritmética
-/// simple con el offset de scroll y la posición acumulada de la fila
-/// ([topOffset], calculada una sola vez al construir la lista) — nada que
-/// medir, nada que se pueda quedar pegado en cero, y mucho más liviano.
-/// Al no depender de un "ya se mostró", se repite igual si el usuario baja
-/// y vuelve a subir.
-class _ScrollCascadeTile extends StatelessWidget {
-  const _ScrollCascadeTile({
-    required this.scrollController,
-    required this.topOffset,
-    required this.itemHeight,
-    required this.viewportHeight,
-    required this.child,
-  });
-
-  final ScrollController scrollController;
-  final double topOffset;
-  final double itemHeight;
-  final double viewportHeight;
-  final Widget child;
-
-  // Zona de desvanecido en cada borde del área visible, en px. Amplia a
-  // propósito (poco menos que una fila) para que la cascada se sienta
-  // suave y ligera en vez de un parpadeo brusco al cruzar el borde.
-  static const _edgeMargin = 70.0;
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: scrollController,
-      builder: (context, _) {
-        final offset =
-            scrollController.hasClients ? scrollController.offset : 0.0;
-        final center = topOffset - offset + itemHeight / 2;
-        final distanceToTop = center;
-        final distanceToBottom = viewportHeight - center;
-        final edge = math.min(distanceToTop, distanceToBottom);
-        final t = (edge / _edgeMargin).clamp(0.0, 1.0);
-        return Opacity(
-          opacity: t,
-          child: Transform.translate(
-            offset: Offset(0, (1 - t) * 12),
-            child: child,
-          ),
-        );
-      },
     );
   }
 }
