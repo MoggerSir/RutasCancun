@@ -65,15 +65,16 @@ class _MapBottomDockState extends State<MapBottomDock>
   // bezier de duración fija: la velocidad de arrastre se transmite tal
   // cual al soltar, y el asentamiento final varía según qué tan lejos
   // esté del reposo — así se siente orgánico en vez de mecánico. La
-  // proporción de amortiguamiento (0.86) deja apenas una insinuación de
-  // rebote al llegar, sin el "boing" de un resorte subamortiguado.
+  // proporción de amortiguamiento (0.68) deja un rebote leve pero
+  // perceptible: se nota, sin llegar al "boing" de un resorte muy suelto.
   static final _spring = SpringDescription.withDampingRatio(
     mass: 1,
-    stiffness: 380,
-    ratio: 0.86,
+    stiffness: 420,
+    ratio: 0.68,
   );
 
   late final AnimationController _ctrl;
+  late final ScrollController _routeListScrollCtrl;
   Animation<double> get _expand => _ctrl;
   bool _expanded = false;
 
@@ -81,6 +82,7 @@ class _MapBottomDockState extends State<MapBottomDock>
   void initState() {
     super.initState();
     _ctrl = AnimationController(vsync: this);
+    _routeListScrollCtrl = ScrollController();
   }
 
   /// Anima `_ctrl` hasta [target] con el resorte físico, arrancando desde
@@ -95,6 +97,7 @@ class _MapBottomDockState extends State<MapBottomDock>
   @override
   void dispose() {
     _ctrl.dispose();
+    _routeListScrollCtrl.dispose();
     super.dispose();
   }
 
@@ -180,6 +183,13 @@ class _MapBottomDockState extends State<MapBottomDock>
   }
 
   List<Widget> _buildRouteListChildren() {
+    // Cursor con la posición vertical acumulada dentro de la lista — se
+    // usa para saber, sin medir nada (ni RenderBox ni GlobalKey), en qué
+    // punto del scroll aparece cada fila. Es aritmética simple con las
+    // mismas alturas que ya definen el tamaño del panel en `_listHeight`,
+    // así que no hay una segunda fuente de verdad que se pueda desincronizar.
+    var cursor = 96.0; // alto aproximado de _VehicleFilterBar
+
     final children = <Widget>[
       _VehicleFilterBar(
         selected: widget.vehicleFilter,
@@ -188,18 +198,28 @@ class _MapBottomDockState extends State<MapBottomDock>
     ];
 
     void addTile(RouteSummary r, {required bool isNearby}) {
-      if (children.isNotEmpty) children.add(const SizedBox(height: 5));
+      if (children.isNotEmpty) {
+        children.add(const SizedBox(height: 5));
+        cursor += 5;
+      }
       final globalIndex = widget.routes.indexOf(r);
       children.add(
-        _RouteTile(
-          summary: r,
-          detail: widget.detailFor(r),
-          color: widget.routeColor(r.code, globalIndex),
-          selected: widget.selectedCode == r.code,
-          onTap: () => widget.onRouteTap(r.code),
-          isNearby: isNearby,
+        _ScrollCascadeTile(
+          scrollController: _routeListScrollCtrl,
+          topOffset: cursor,
+          itemHeight: MapBottomDock.tileHeight,
+          viewportHeight: _listHeight,
+          child: _RouteTile(
+            summary: r,
+            detail: widget.detailFor(r),
+            color: widget.routeColor(r.code, globalIndex),
+            selected: widget.selectedCode == r.code,
+            onTap: () => widget.onRouteTap(r.code),
+            isNearby: isNearby,
+          ),
         ),
       );
+      cursor += MapBottomDock.tileHeight;
     }
 
     if (!_showNearbySection) {
@@ -222,11 +242,13 @@ class _MapBottomDockState extends State<MapBottomDock>
         ),
       ),
     );
+    cursor += 28;
     for (final r in _nearbyRoutes) {
       addTile(r, isNearby: true);
     }
     if (_otherRoutes.isNotEmpty) {
       children.add(const SizedBox(height: 8));
+      cursor += 8;
       children.add(
         const Padding(
           padding: EdgeInsets.fromLTRB(4, 2, 4, 6),
@@ -240,6 +262,7 @@ class _MapBottomDockState extends State<MapBottomDock>
           ),
         ),
       );
+      cursor += 24;
       for (final r in _otherRoutes) {
         addTile(r, isNearby: false);
       }
@@ -286,202 +309,284 @@ class _MapBottomDockState extends State<MapBottomDock>
                 MapBottomDock.navHeight +
                 2; // margen contra desajustes de redondeo en la animación
 
-            return SizedBox(
-              height: totalH,
-              child: GlassSurface(
-                forMapOverlay: !isNight,
-                borderRadius: const BorderRadius.vertical(
-                  top: Radius.circular(22),
-                  bottom: Radius.circular(24),
-                ),
-                blur: 28,
-                padding: EdgeInsets.zero,
-                child: Column(
-                  children: [
-                    GestureDetector(
-                      behavior: HitTestBehavior.opaque,
-                      onTap: _toggle,
-                      onVerticalDragUpdate: _onVerticalDragUpdate,
-                      onVerticalDragEnd: _onVerticalDragEnd,
-                      child: SizedBox(
-                        height: MapBottomDock.headerHeight,
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Container(
-                              width: 40,
-                              height: 4,
-                              margin: const EdgeInsets.only(top: 8, bottom: 4),
-                              decoration: BoxDecoration(
-                                color:
-                                    AppColors.textMuted.withValues(alpha: 0.28),
-                                borderRadius: BorderRadius.circular(4),
-                              ),
-                            ),
-                            Padding(
-                              padding:
-                                  const EdgeInsets.symmetric(horizontal: 16),
-                              child: Row(
-                                children: [
-                                  Container(
-                                    width: 30,
-                                    height: 30,
-                                    decoration: BoxDecoration(
-                                      color: AppColors.primary
-                                          .withValues(alpha: 0.1),
-                                      borderRadius: BorderRadius.circular(10),
-                                    ),
-                                    child: Center(
-                                      child: SvgPicture.asset(
-                                        'assets/icons/bus.svg',
-                                        width: 17,
-                                        height: 17,
-                                        colorFilter: const ColorFilter.mode(
-                                          AppColors.primary,
-                                          BlendMode.srcIn,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 10),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          _title,
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: MapOverlayStyle.title(context)
-                                              .copyWith(
-                                            fontSize: 16,
-                                            fontWeight: FontWeight.w800,
-                                          ),
-                                        ),
-                                        Text(
-                                          _subtitle,
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: const TextStyle(
-                                            fontSize: 12,
-                                            fontWeight: FontWeight.w600,
-                                            color: AppColors.textMuted,
-                                            height: 1.2,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  const SizedBox(width: 6),
-                                  IconButton(
-                                    onPressed: widget.onOpenInfo,
-                                    tooltip:
-                                        'Información, privacidad y términos',
-                                    icon:
-                                        const Icon(Icons.info_outline_rounded),
-                                    iconSize: 21,
-                                    visualDensity: VisualDensity.compact,
-                                  ),
-                                  Transform.rotate(
-                                    // Gira con el mismo valor del resorte
-                                    // frame a frame, en vez de una segunda
-                                    // animación implícita superpuesta con
-                                    // su propia curva y duración fijas —
-                                    // así el chevron y el panel se mueven
-                                    // exactamente al unísono.
-                                    angle: _expand.value * math.pi,
-                                    child: Container(
-                                      width: 30,
-                                      height: 30,
-                                      decoration: BoxDecoration(
-                                        color: AppColors.textMuted
-                                            .withValues(alpha: 0.1),
-                                        borderRadius: BorderRadius.circular(10),
-                                      ),
-                                      child: const Icon(
-                                        Icons.keyboard_arrow_up_rounded,
-                                        size: 24,
-                                        color: AppColors.text,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
+            // Cuánto se pasó el resorte del rango [0,1]: positivo al abrir
+            // (rebasa 1 antes de asentarse), negativo al cerrar (rebasa 0).
+            // Se usa sólo como transform decorativo — el tamaño real del
+            // panel (totalH) ya quedó a salvo arriba con el valor recortado,
+            // así que este "pasadito de más" nunca puede volverse una
+            // altura negativa; sólo se ve como un leve estirón/rebote.
+            final overshoot = _expand.value - expandClamped;
+            final stretch = overshoot > 0 ? 1 + overshoot * 0.045 : 1.0;
+            final dip = overshoot < 0 ? -overshoot * 30 : 0.0;
+
+            return Transform.translate(
+              offset: Offset(0, dip),
+              child: Transform.scale(
+                scale: stretch,
+                alignment: Alignment.bottomCenter,
+                child: SizedBox(
+                  height: totalH,
+                  child: GlassSurface(
+                    forMapOverlay: !isNight,
+                    borderRadius: const BorderRadius.vertical(
+                      top: Radius.circular(22),
+                      bottom: Radius.circular(24),
                     ),
-                    if (_showToggleButton)
-                      SizedBox(
-                        height: MapBottomDock.showAllButtonHeight,
-                        child: Padding(
-                          padding: const EdgeInsets.fromLTRB(12, 4, 12, 6),
-                          child: widget.allRoutesVisible
-                              ? FilledButton.tonalIcon(
-                                  onPressed: widget.onHideAll,
-                                  icon: const Icon(Icons.visibility_off_rounded,
-                                      size: 20),
-                                  label: const Text('Ocultar todas las rutas'),
-                                  style: FilledButton.styleFrom(
-                                    minimumSize: const Size.fromHeight(44),
-                                    textStyle: const TextStyle(
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.w800,
-                                    ),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(14),
-                                    ),
-                                  ),
-                                )
-                              : FilledButton.tonalIcon(
-                                  onPressed: widget.onShowAll,
-                                  icon:
-                                      const Icon(Icons.route_rounded, size: 20),
-                                  label: const Text('Ver todas las rutas'),
-                                  style: FilledButton.styleFrom(
-                                    minimumSize: const Size.fromHeight(44),
-                                    textStyle: const TextStyle(
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.w800,
-                                    ),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(14),
-                                    ),
+                    blur: 28,
+                    padding: EdgeInsets.zero,
+                    child: Column(
+                      children: [
+                        GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onTap: _toggle,
+                          onVerticalDragUpdate: _onVerticalDragUpdate,
+                          onVerticalDragEnd: _onVerticalDragEnd,
+                          child: SizedBox(
+                            height: MapBottomDock.headerHeight,
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Container(
+                                  width: 40,
+                                  height: 4,
+                                  margin:
+                                      const EdgeInsets.only(top: 8, bottom: 4),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.textMuted
+                                        .withValues(alpha: 0.28),
+                                    borderRadius: BorderRadius.circular(4),
                                   ),
                                 ),
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 16),
+                                  child: Row(
+                                    children: [
+                                      Container(
+                                        width: 30,
+                                        height: 30,
+                                        decoration: BoxDecoration(
+                                          color: AppColors.primary
+                                              .withValues(alpha: 0.1),
+                                          borderRadius:
+                                              BorderRadius.circular(10),
+                                        ),
+                                        child: Center(
+                                          child: SvgPicture.asset(
+                                            'assets/icons/bus.svg',
+                                            width: 17,
+                                            height: 17,
+                                            colorFilter: const ColorFilter.mode(
+                                              AppColors.primary,
+                                              BlendMode.srcIn,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 10),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              _title,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style:
+                                                  MapOverlayStyle.title(context)
+                                                      .copyWith(
+                                                fontSize: 16,
+                                                fontWeight: FontWeight.w800,
+                                              ),
+                                            ),
+                                            Text(
+                                              _subtitle,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: const TextStyle(
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.w600,
+                                                color: AppColors.textMuted,
+                                                height: 1.2,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      const SizedBox(width: 6),
+                                      IconButton(
+                                        onPressed: widget.onOpenInfo,
+                                        tooltip:
+                                            'Información, privacidad y términos',
+                                        icon: const Icon(
+                                            Icons.info_outline_rounded),
+                                        iconSize: 21,
+                                        visualDensity: VisualDensity.compact,
+                                      ),
+                                      Transform.rotate(
+                                        // Gira con el mismo valor del resorte
+                                        // frame a frame, en vez de una segunda
+                                        // animación implícita superpuesta con
+                                        // su propia curva y duración fijas —
+                                        // así el chevron y el panel se mueven
+                                        // exactamente al unísono.
+                                        angle: _expand.value * math.pi,
+                                        child: Container(
+                                          width: 30,
+                                          height: 30,
+                                          decoration: BoxDecoration(
+                                            color: AppColors.textMuted
+                                                .withValues(alpha: 0.1),
+                                            borderRadius:
+                                                BorderRadius.circular(10),
+                                          ),
+                                          child: const Icon(
+                                            Icons.keyboard_arrow_up_rounded,
+                                            size: 24,
+                                            color: AppColors.text,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
                         ),
-                      ),
-                    if (expandClamped > 0.01) ...[
-                      SizedBox(
-                        height: listH,
-                        child: ListView(
-                          padding: const EdgeInsets.fromLTRB(10, 0, 10, 6),
-                          physics: _expanded
-                              ? const BouncingScrollPhysics()
-                              : const NeverScrollableScrollPhysics(),
-                          children: _buildRouteListChildren(),
+                        if (_showToggleButton)
+                          SizedBox(
+                            height: MapBottomDock.showAllButtonHeight,
+                            child: Padding(
+                              padding: const EdgeInsets.fromLTRB(12, 4, 12, 6),
+                              child: widget.allRoutesVisible
+                                  ? FilledButton.tonalIcon(
+                                      onPressed: widget.onHideAll,
+                                      icon: const Icon(
+                                          Icons.visibility_off_rounded,
+                                          size: 20),
+                                      label:
+                                          const Text('Ocultar todas las rutas'),
+                                      style: FilledButton.styleFrom(
+                                        minimumSize: const Size.fromHeight(44),
+                                        textStyle: const TextStyle(
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w800,
+                                        ),
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius:
+                                              BorderRadius.circular(14),
+                                        ),
+                                      ),
+                                    )
+                                  : FilledButton.tonalIcon(
+                                      onPressed: widget.onShowAll,
+                                      icon: const Icon(Icons.route_rounded,
+                                          size: 20),
+                                      label: const Text('Ver todas las rutas'),
+                                      style: FilledButton.styleFrom(
+                                        minimumSize: const Size.fromHeight(44),
+                                        textStyle: const TextStyle(
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w800,
+                                        ),
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius:
+                                              BorderRadius.circular(14),
+                                        ),
+                                      ),
+                                    ),
+                            ),
+                          ),
+                        if (expandClamped > 0.01) ...[
+                          SizedBox(
+                            height: listH,
+                            child: ListView(
+                              controller: _routeListScrollCtrl,
+                              padding: const EdgeInsets.fromLTRB(10, 0, 10, 6),
+                              physics: _expanded
+                                  ? const BouncingScrollPhysics()
+                                  : const NeverScrollableScrollPhysics(),
+                              children: _buildRouteListChildren(),
+                            ),
+                          ),
+                          Divider(
+                            height: 1,
+                            thickness: 1,
+                            color: AppColors.glassBorder.withValues(alpha: 0.6),
+                          ),
+                        ],
+                        MapNavBarContent(
+                          current: widget.navAction,
+                          onAction: widget.onNavAction,
+                          compact: true,
                         ),
-                      ),
-                      Divider(
-                        height: 1,
-                        thickness: 1,
-                        color: AppColors.glassBorder.withValues(alpha: 0.6),
-                      ),
-                    ],
-                    MapNavBarContent(
-                      current: widget.navAction,
-                      onAction: widget.onNavAction,
-                      compact: true,
+                      ],
                     ),
-                  ],
+                  ),
                 ),
               ),
             );
           },
         ),
       ),
+    );
+  }
+}
+
+/// Aparición gradual de una fila conforme entra o sale por los bordes del
+/// área visible al hacer scroll.
+///
+/// Antes esto se medía con `RenderBox.localToGlobal` en cada notificación
+/// de scroll, para las ~17 filas a la vez: caro (recorre el árbol de
+/// renderizado fila por fila) y, si algo no llegaba a estar "attached" a
+/// tiempo, la fila se quedaba invisible para siempre. Aquí es aritmética
+/// simple con el offset de scroll y la posición acumulada de la fila
+/// ([topOffset], calculada una sola vez al construir la lista) — nada que
+/// medir, nada que se pueda quedar pegado en cero, y mucho más liviano.
+/// Al no depender de un "ya se mostró", se repite igual si el usuario baja
+/// y vuelve a subir.
+class _ScrollCascadeTile extends StatelessWidget {
+  const _ScrollCascadeTile({
+    required this.scrollController,
+    required this.topOffset,
+    required this.itemHeight,
+    required this.viewportHeight,
+    required this.child,
+  });
+
+  final ScrollController scrollController;
+  final double topOffset;
+  final double itemHeight;
+  final double viewportHeight;
+  final Widget child;
+
+  // Zona de desvanecido en cada borde del área visible, en px. Amplia a
+  // propósito (poco menos que una fila) para que la cascada se sienta
+  // suave y ligera en vez de un parpadeo brusco al cruzar el borde.
+  static const _edgeMargin = 70.0;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: scrollController,
+      builder: (context, _) {
+        final offset =
+            scrollController.hasClients ? scrollController.offset : 0.0;
+        final center = topOffset - offset + itemHeight / 2;
+        final distanceToTop = center;
+        final distanceToBottom = viewportHeight - center;
+        final edge = math.min(distanceToTop, distanceToBottom);
+        final t = (edge / _edgeMargin).clamp(0.0, 1.0);
+        return Opacity(
+          opacity: t,
+          child: Transform.translate(
+            offset: Offset(0, (1 - t) * 12),
+            child: child,
+          ),
+        );
+      },
     );
   }
 }
