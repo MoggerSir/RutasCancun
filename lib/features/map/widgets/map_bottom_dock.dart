@@ -1,7 +1,6 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/physics.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:rutas_cancun/core/theme/app_colors.dart';
 import 'package:rutas_cancun/core/widgets/glass_surface.dart';
@@ -61,36 +60,19 @@ class MapBottomDock extends StatefulWidget {
 
 class _MapBottomDockState extends State<MapBottomDock>
     with SingleTickerProviderStateMixin {
-  // Resorte físico real (masa-resorte-amortiguador) en vez de una curva
-  // bezier de duración fija: la velocidad de arrastre se transmite tal
-  // cual al soltar, y el asentamiento final varía según qué tan lejos
-  // esté del reposo — así se siente orgánico en vez de mecánico. La
-  // proporción de amortiguamiento (0.55) deja un rebote elástico bien
-  // perceptible — el "toque premium" pedido — sin llegar a oscilar tanto
-  // que se sienta descontrolado (rigidez 340 lo trae de vuelta rápido).
-  static final _spring = SpringDescription.withDampingRatio(
-    mass: 1,
-    stiffness: 320,
-    ratio: 0.5,
-  );
-
   late final AnimationController _ctrl;
-  Animation<double> get _expand => _ctrl;
+  late final Animation<double> _expand;
   bool _expanded = false;
 
   @override
   void initState() {
     super.initState();
-    _ctrl = AnimationController(vsync: this);
-  }
-
-  /// Anima `_ctrl` hasta [target] con el resorte físico, arrancando desde
-  /// [velocity] (en unidades de progreso/segundo) para continuar con
-  /// naturalidad el gesto de arrastre que soltó al usuario.
-  void _springTo(double target, {double velocity = 0}) {
-    _ctrl.animateWith(
-      SpringSimulation(_spring, _ctrl.value, target, velocity),
-    );
+    _ctrl = AnimationController(
+        vsync: this, duration: const Duration(milliseconds: 380));
+    // Curva bezier con sobrepaso (no física real) — es la que ya se sentía
+    // bien: un rebote de "caricatura", suave y con carácter, el mismo tipo
+    // que usan el resto de los paneles/animaciones de la app.
+    _expand = CurvedAnimation(parent: _ctrl, curve: AppColors.curveSpring);
   }
 
   @override
@@ -140,30 +122,26 @@ class _MapBottomDockState extends State<MapBottomDock>
     return [..._nearbyRoutes, ..._otherRoutes];
   }
 
-  void _setExpanded(bool value, {double velocity = 0}) {
+  void _setExpanded(bool value) {
     // Antes, si el valor no cambiaba se salía sin animar — un arrastre que
     // soltaba a medio camino y confirmaba el mismo estado en el que ya
     // estaba (p. ej. `_expanded` seguía en true) dejaba el panel a medias,
-    // sin terminar de asentarse. Ahora siempre se dispara el resorte hacia
-    // el extremo correspondiente.
+    // sin terminar de asentarse. Ahora siempre se dispara la animación
+    // hacia el extremo correspondiente.
     if (_expanded != value) setState(() => _expanded = value);
-    _springTo(value ? 1.0 : 0.0, velocity: velocity);
+    value ? _ctrl.forward() : _ctrl.reverse();
   }
 
   void _toggle() => _setExpanded(!_expanded);
 
   void _onVerticalDragEnd(DragEndDetails details) {
     final vy = details.velocity.pixelsPerSecond.dy;
-    final range = _listHeight;
-    // Velocidad de progreso (0..1 por segundo): negativa porque arrastrar
-    // hacia arriba (vy < 0) equivale a aumentar el progreso de expansión.
-    final progressVelocity = range > 0 ? -vy / range : 0.0;
     if (vy < -240) {
-      _setExpanded(true, velocity: progressVelocity);
+      _setExpanded(true);
     } else if (vy > 240) {
-      _setExpanded(false, velocity: progressVelocity);
+      _setExpanded(false);
     } else {
-      _setExpanded(_expand.value > 0.4, velocity: progressVelocity);
+      _setExpanded(_expand.value > 0.4);
     }
   }
 
@@ -273,239 +251,204 @@ class _MapBottomDockState extends State<MapBottomDock>
         child: AnimatedBuilder(
           animation: _expand,
           builder: (context, _) {
-            // El resorte es levemente subamortiguado y puede pasarse un
-            // poco de 0/1 al asentarse — se recorta sólo donde alimenta un
-            // tamaño (una altura negativa, aunque sea por un frame,
-            // truena el layout). El chevron sí usa el valor sin recortar:
-            // ahí ese pasadito de más es justamente lo que se ve orgánico.
-            final expandClamped = _expand.value.clamp(0.0, 1.0);
-            final listH = _listHeight * expandClamped;
+            final listH = _listHeight * _expand.value;
             final totalH = MapBottomDock.headerHeight +
                 (_showToggleButton ? MapBottomDock.showAllButtonHeight : 0) +
                 listH +
-                (expandClamped > 0.01 ? 1 : 0) +
+                (_expand.value > 0.01 ? 1 : 0) +
                 MapBottomDock.navHeight +
                 2; // margen contra desajustes de redondeo en la animación
 
-            // Cuánto se pasó el resorte del rango [0,1]: positivo al abrir
-            // (rebasa 1 antes de asentarse), negativo al cerrar (rebasa 0).
-            // Se usa sólo como transform decorativo — el tamaño real del
-            // panel (totalH) ya quedó a salvo arriba con el valor recortado,
-            // así que este "pasadito de más" nunca puede volverse una
-            // altura negativa. Al abrir se ve como un estirón elástico
-            // (como jalar una liga); al cerrar, además de caer un poco de
-            // más (dip) se comprime levemente (squash) antes de asentarse
-            // — el clásico rebote de pelota, el toque premium pedido.
-            final overshoot = _expand.value - expandClamped;
-            final stretch = overshoot > 0 ? 1 + overshoot * 0.14 : 1.0;
-            final squash = overshoot < 0 ? 1 + overshoot * 0.07 : 1.0;
-            final dip = overshoot < 0 ? -overshoot * 55 : 0.0;
-
-            return Transform.translate(
-              offset: Offset(0, dip),
-              child: Transform.scale(
-                scale: stretch * squash,
-                alignment: Alignment.bottomCenter,
-                child: SizedBox(
-                  height: totalH,
-                  child: GlassSurface(
-                    forMapOverlay: !isNight,
-                    borderRadius: const BorderRadius.vertical(
-                      top: Radius.circular(22),
-                      bottom: Radius.circular(24),
-                    ),
-                    blur: 28,
-                    padding: EdgeInsets.zero,
-                    child: Column(
-                      children: [
-                        GestureDetector(
-                          behavior: HitTestBehavior.opaque,
-                          onTap: _toggle,
-                          onVerticalDragUpdate: _onVerticalDragUpdate,
-                          onVerticalDragEnd: _onVerticalDragEnd,
-                          child: SizedBox(
-                            height: MapBottomDock.headerHeight,
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Container(
-                                  width: 40,
-                                  height: 4,
-                                  margin:
-                                      const EdgeInsets.only(top: 8, bottom: 4),
-                                  decoration: BoxDecoration(
-                                    color: AppColors.textMuted
-                                        .withValues(alpha: 0.28),
-                                    borderRadius: BorderRadius.circular(4),
-                                  ),
-                                ),
-                                Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 16),
-                                  child: Row(
-                                    children: [
-                                      Container(
-                                        width: 30,
-                                        height: 30,
-                                        decoration: BoxDecoration(
-                                          color: AppColors.primary
-                                              .withValues(alpha: 0.1),
-                                          borderRadius:
-                                              BorderRadius.circular(10),
-                                        ),
-                                        child: Center(
-                                          child: SvgPicture.asset(
-                                            'assets/icons/bus.svg',
-                                            width: 17,
-                                            height: 17,
-                                            colorFilter: const ColorFilter.mode(
-                                              AppColors.primary,
-                                              BlendMode.srcIn,
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                      const SizedBox(width: 10),
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            Text(
-                                              _title,
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
-                                              style:
-                                                  MapOverlayStyle.title(context)
-                                                      .copyWith(
-                                                fontSize: 16,
-                                                fontWeight: FontWeight.w800,
-                                              ),
-                                            ),
-                                            Text(
-                                              _subtitle,
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
-                                              style: const TextStyle(
-                                                fontSize: 12,
-                                                fontWeight: FontWeight.w600,
-                                                color: AppColors.textMuted,
-                                                height: 1.2,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                      const SizedBox(width: 6),
-                                      IconButton(
-                                        onPressed: widget.onOpenInfo,
-                                        tooltip:
-                                            'Información, privacidad y términos',
-                                        icon: const Icon(
-                                            Icons.info_outline_rounded),
-                                        iconSize: 21,
-                                        visualDensity: VisualDensity.compact,
-                                      ),
-                                      Transform.rotate(
-                                        // Gira con el mismo valor del resorte
-                                        // frame a frame, en vez de una segunda
-                                        // animación implícita superpuesta con
-                                        // su propia curva y duración fijas —
-                                        // así el chevron y el panel se mueven
-                                        // exactamente al unísono.
-                                        angle: _expand.value * math.pi,
-                                        child: Container(
-                                          width: 30,
-                                          height: 30,
-                                          decoration: BoxDecoration(
-                                            color: AppColors.textMuted
-                                                .withValues(alpha: 0.1),
-                                            borderRadius:
-                                                BorderRadius.circular(10),
-                                          ),
-                                          child: const Icon(
-                                            Icons.keyboard_arrow_up_rounded,
-                                            size: 24,
-                                            color: AppColors.text,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
+            return SizedBox(
+              height: totalH,
+              child: GlassSurface(
+                forMapOverlay: !isNight,
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(22),
+                  bottom: Radius.circular(24),
+                ),
+                blur: 28,
+                padding: EdgeInsets.zero,
+                child: Column(
+                  children: [
+                    GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: _toggle,
+                      onVerticalDragUpdate: _onVerticalDragUpdate,
+                      onVerticalDragEnd: _onVerticalDragEnd,
+                      child: SizedBox(
+                        height: MapBottomDock.headerHeight,
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Container(
+                              width: 40,
+                              height: 4,
+                              margin: const EdgeInsets.only(top: 8, bottom: 4),
+                              decoration: BoxDecoration(
+                                color:
+                                    AppColors.textMuted.withValues(alpha: 0.28),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
                             ),
-                          ),
-                        ),
-                        if (_showToggleButton)
-                          SizedBox(
-                            height: MapBottomDock.showAllButtonHeight,
-                            child: Padding(
-                              padding: const EdgeInsets.fromLTRB(12, 4, 12, 6),
-                              child: widget.allRoutesVisible
-                                  ? FilledButton.tonalIcon(
-                                      onPressed: widget.onHideAll,
-                                      icon: const Icon(
-                                          Icons.visibility_off_rounded,
-                                          size: 20),
-                                      label:
-                                          const Text('Ocultar todas las rutas'),
-                                      style: FilledButton.styleFrom(
-                                        minimumSize: const Size.fromHeight(44),
-                                        textStyle: const TextStyle(
-                                          fontSize: 14,
-                                          fontWeight: FontWeight.w800,
-                                        ),
-                                        shape: RoundedRectangleBorder(
-                                          borderRadius:
-                                              BorderRadius.circular(14),
-                                        ),
-                                      ),
-                                    )
-                                  : FilledButton.tonalIcon(
-                                      onPressed: widget.onShowAll,
-                                      icon: const Icon(Icons.route_rounded,
-                                          size: 20),
-                                      label: const Text('Ver todas las rutas'),
-                                      style: FilledButton.styleFrom(
-                                        minimumSize: const Size.fromHeight(44),
-                                        textStyle: const TextStyle(
-                                          fontSize: 14,
-                                          fontWeight: FontWeight.w800,
-                                        ),
-                                        shape: RoundedRectangleBorder(
-                                          borderRadius:
-                                              BorderRadius.circular(14),
+                            Padding(
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 16),
+                              child: Row(
+                                children: [
+                                  Container(
+                                    width: 30,
+                                    height: 30,
+                                    decoration: BoxDecoration(
+                                      color: AppColors.primary
+                                          .withValues(alpha: 0.1),
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                    child: Center(
+                                      child: SvgPicture.asset(
+                                        'assets/icons/bus.svg',
+                                        width: 17,
+                                        height: 17,
+                                        colorFilter: const ColorFilter.mode(
+                                          AppColors.primary,
+                                          BlendMode.srcIn,
                                         ),
                                       ),
                                     ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          _title,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: MapOverlayStyle.title(context)
+                                              .copyWith(
+                                            fontSize: 16,
+                                            fontWeight: FontWeight.w800,
+                                          ),
+                                        ),
+                                        Text(
+                                          _subtitle,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: const TextStyle(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w600,
+                                            color: AppColors.textMuted,
+                                            height: 1.2,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  IconButton(
+                                    onPressed: widget.onOpenInfo,
+                                    tooltip:
+                                        'Información, privacidad y términos',
+                                    icon:
+                                        const Icon(Icons.info_outline_rounded),
+                                    iconSize: 21,
+                                    visualDensity: VisualDensity.compact,
+                                  ),
+                                  Transform.rotate(
+                                    // Gira con el mismo valor del resorte
+                                    // frame a frame, en vez de una segunda
+                                    // animación implícita superpuesta con
+                                    // su propia curva y duración fijas —
+                                    // así el chevron y el panel se mueven
+                                    // exactamente al unísono.
+                                    angle: _expand.value * math.pi,
+                                    child: Container(
+                                      width: 30,
+                                      height: 30,
+                                      decoration: BoxDecoration(
+                                        color: AppColors.textMuted
+                                            .withValues(alpha: 0.1),
+                                        borderRadius: BorderRadius.circular(10),
+                                      ),
+                                      child: const Icon(
+                                        Icons.keyboard_arrow_up_rounded,
+                                        size: 24,
+                                        color: AppColors.text,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
-                          ),
-                        if (expandClamped > 0.01) ...[
-                          SizedBox(
-                            height: listH,
-                            child: ListView(
-                              padding: const EdgeInsets.fromLTRB(10, 0, 10, 6),
-                              physics: _expanded
-                                  ? const BouncingScrollPhysics()
-                                  : const NeverScrollableScrollPhysics(),
-                              children: _buildRouteListChildren(),
-                            ),
-                          ),
-                          Divider(
-                            height: 1,
-                            thickness: 1,
-                            color: AppColors.glassBorder.withValues(alpha: 0.6),
-                          ),
-                        ],
-                        MapNavBarContent(
-                          current: widget.navAction,
-                          onAction: widget.onNavAction,
-                          compact: true,
+                          ],
                         ),
-                      ],
+                      ),
                     ),
-                  ),
+                    if (_showToggleButton)
+                      SizedBox(
+                        height: MapBottomDock.showAllButtonHeight,
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(12, 4, 12, 6),
+                          child: widget.allRoutesVisible
+                              ? FilledButton.tonalIcon(
+                                  onPressed: widget.onHideAll,
+                                  icon: const Icon(Icons.visibility_off_rounded,
+                                      size: 20),
+                                  label: const Text('Ocultar todas las rutas'),
+                                  style: FilledButton.styleFrom(
+                                    minimumSize: const Size.fromHeight(44),
+                                    textStyle: const TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(14),
+                                    ),
+                                  ),
+                                )
+                              : FilledButton.tonalIcon(
+                                  onPressed: widget.onShowAll,
+                                  icon:
+                                      const Icon(Icons.route_rounded, size: 20),
+                                  label: const Text('Ver todas las rutas'),
+                                  style: FilledButton.styleFrom(
+                                    minimumSize: const Size.fromHeight(44),
+                                    textStyle: const TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(14),
+                                    ),
+                                  ),
+                                ),
+                        ),
+                      ),
+                    if (_expand.value > 0.01) ...[
+                      SizedBox(
+                        height: listH,
+                        child: ListView(
+                          padding: const EdgeInsets.fromLTRB(10, 0, 10, 6),
+                          physics: _expanded
+                              ? const BouncingScrollPhysics()
+                              : const NeverScrollableScrollPhysics(),
+                          children: _buildRouteListChildren(),
+                        ),
+                      ),
+                      Divider(
+                        height: 1,
+                        thickness: 1,
+                        color: AppColors.glassBorder.withValues(alpha: 0.6),
+                      ),
+                    ],
+                    MapNavBarContent(
+                      current: widget.navAction,
+                      onAction: widget.onNavAction,
+                      compact: true,
+                    ),
+                  ],
                 ),
               ),
             );
