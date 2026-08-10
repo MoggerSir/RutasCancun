@@ -13,6 +13,7 @@ abstract final class AppColors {
   static const text = Color(0xFF1C2830);
   static const textMuted = Color(0xFF5C6B73);
   static const danger = Color(0xFFD64545);
+  static const donation = Color(0xFFE0577B);
 
   /// Tarjetas de ruta
   static const cardRouteNormal = Color(0xFFE8F4F8);

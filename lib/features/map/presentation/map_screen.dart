@@ -20,12 +20,13 @@ import 'package:rutas_cancun/features/map/domain/route_visual_state.dart';
 import 'package:rutas_cancun/features/map/widgets/map_bottom_dock.dart';
 import 'package:rutas_cancun/features/map/widgets/user_location_pulse_marker.dart';
 import 'package:rutas_cancun/features/map/widgets/institutional_map_tiles.dart';
-import 'package:rutas_cancun/features/map/widgets/map_quick_actions.dart';
 import 'package:rutas_cancun/features/map/widgets/route_flow_overlay.dart';
 import 'package:rutas_cancun/features/map/widgets/route_info_sheet.dart';
 import 'package:rutas_cancun/features/map/widgets/route_line_badge.dart';
 import 'package:rutas_cancun/features/map/widgets/route_endpoint_marker.dart';
 import 'package:rutas_cancun/features/map/widgets/route_startup_reveal_overlay.dart';
+import 'package:rutas_cancun/features/donations/presentation/donation_chip.dart';
+import 'package:rutas_cancun/features/donations/presentation/donation_welcome_dialog.dart';
 import 'package:rutas_cancun/features/routes/data/routes_repository.dart';
 import 'package:rutas_cancun/features/routes/domain/route_colors.dart';
 import 'package:rutas_cancun/features/routes/domain/route_service_hours.dart';
@@ -270,6 +271,11 @@ class _PremiumMapBodyState extends ConsumerState<_PremiumMapBody>
         if (mounted) setState(() {});
       });
     });
+    if (kIsWeb) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) showDonationWelcomeDialog(context);
+      });
+    }
   }
 
   void _onFadeTick() {
@@ -1780,6 +1786,13 @@ class _PremiumMapBodyState extends ConsumerState<_PremiumMapBody>
                   ],
                 ),
               ),
+              const SizedBox(height: 10),
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 16),
+                child: Row(
+                  children: [DonationChip()],
+                ),
+              ),
               if (_nearbyFallbackMessage != null)
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
@@ -1790,10 +1803,6 @@ class _PremiumMapBodyState extends ConsumerState<_PremiumMapBody>
                         const TextStyle(fontSize: 11, color: AppColors.accent),
                   ),
                 ),
-              const SizedBox(height: 10),
-              MapQuickActions(
-                onFindNearby: () => _handleNavAction(MapNavAction.nearby),
-              ),
             ],
           ),
         ),

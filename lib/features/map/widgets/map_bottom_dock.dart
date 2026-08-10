@@ -1,4 +1,7 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
+import 'package:flutter/physics.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:rutas_cancun/core/theme/app_colors.dart';
 import 'package:rutas_cancun/core/widgets/glass_surface.dart';
@@ -58,16 +61,35 @@ class MapBottomDock extends StatefulWidget {
 
 class _MapBottomDockState extends State<MapBottomDock>
     with SingleTickerProviderStateMixin {
+  // Resorte físico real (masa-resorte-amortiguador) en vez de una curva
+  // bezier de duración fija: la velocidad de arrastre se transmite tal
+  // cual al soltar, y el asentamiento final varía según qué tan lejos
+  // esté del reposo — así se siente orgánico en vez de mecánico. La
+  // proporción de amortiguamiento (0.86) deja apenas una insinuación de
+  // rebote al llegar, sin el "boing" de un resorte subamortiguado.
+  static final _spring = SpringDescription.withDampingRatio(
+    mass: 1,
+    stiffness: 380,
+    ratio: 0.86,
+  );
+
   late final AnimationController _ctrl;
-  late final Animation<double> _expand;
+  Animation<double> get _expand => _ctrl;
   bool _expanded = false;
 
   @override
   void initState() {
     super.initState();
-    _ctrl = AnimationController(
-        vsync: this, duration: const Duration(milliseconds: 380));
-    _expand = CurvedAnimation(parent: _ctrl, curve: AppColors.curveSpring);
+    _ctrl = AnimationController(vsync: this);
+  }
+
+  /// Anima `_ctrl` hasta [target] con el resorte físico, arrancando desde
+  /// [velocity] (en unidades de progreso/segundo) para continuar con
+  /// naturalidad el gesto de arrastre que soltó al usuario.
+  void _springTo(double target, {double velocity = 0}) {
+    _ctrl.animateWith(
+      SpringSimulation(_spring, _ctrl.value, target, velocity),
+    );
   }
 
   @override
@@ -117,22 +139,30 @@ class _MapBottomDockState extends State<MapBottomDock>
     return [..._nearbyRoutes, ..._otherRoutes];
   }
 
-  void _setExpanded(bool value) {
-    if (_expanded == value) return;
-    setState(() => _expanded = value);
-    value ? _ctrl.forward() : _ctrl.reverse();
+  void _setExpanded(bool value, {double velocity = 0}) {
+    // Antes, si el valor no cambiaba se salía sin animar — un arrastre que
+    // soltaba a medio camino y confirmaba el mismo estado en el que ya
+    // estaba (p. ej. `_expanded` seguía en true) dejaba el panel a medias,
+    // sin terminar de asentarse. Ahora siempre se dispara el resorte hacia
+    // el extremo correspondiente.
+    if (_expanded != value) setState(() => _expanded = value);
+    _springTo(value ? 1.0 : 0.0, velocity: velocity);
   }
 
   void _toggle() => _setExpanded(!_expanded);
 
   void _onVerticalDragEnd(DragEndDetails details) {
     final vy = details.velocity.pixelsPerSecond.dy;
+    final range = _listHeight;
+    // Velocidad de progreso (0..1 por segundo): negativa porque arrastrar
+    // hacia arriba (vy < 0) equivale a aumentar el progreso de expansión.
+    final progressVelocity = range > 0 ? -vy / range : 0.0;
     if (vy < -240) {
-      _setExpanded(true);
+      _setExpanded(true, velocity: progressVelocity);
     } else if (vy > 240) {
-      _setExpanded(false);
+      _setExpanded(false, velocity: progressVelocity);
     } else {
-      _setExpanded(_expand.value > 0.4);
+      _setExpanded(_expand.value > 0.4, velocity: progressVelocity);
     }
   }
 
@@ -242,11 +272,17 @@ class _MapBottomDockState extends State<MapBottomDock>
         child: AnimatedBuilder(
           animation: _expand,
           builder: (context, _) {
-            final listH = _listHeight * _expand.value;
+            // El resorte es levemente subamortiguado y puede pasarse un
+            // poco de 0/1 al asentarse — se recorta sólo donde alimenta un
+            // tamaño (una altura negativa, aunque sea por un frame,
+            // truena el layout). El chevron sí usa el valor sin recortar:
+            // ahí ese pasadito de más es justamente lo que se ve orgánico.
+            final expandClamped = _expand.value.clamp(0.0, 1.0);
+            final listH = _listHeight * expandClamped;
             final totalH = MapBottomDock.headerHeight +
                 (_showToggleButton ? MapBottomDock.showAllButtonHeight : 0) +
                 listH +
-                (_expand.value > 0.01 ? 1 : 0) +
+                (expandClamped > 0.01 ? 1 : 0) +
                 MapBottomDock.navHeight +
                 2; // margen contra desajustes de redondeo en la animación
 
@@ -347,10 +383,14 @@ class _MapBottomDockState extends State<MapBottomDock>
                                     iconSize: 21,
                                     visualDensity: VisualDensity.compact,
                                   ),
-                                  AnimatedRotation(
-                                    turns: _expand.value * 0.5,
-                                    duration: const Duration(milliseconds: 380),
-                                    curve: AppColors.curveSpring,
+                                  Transform.rotate(
+                                    // Gira con el mismo valor del resorte
+                                    // frame a frame, en vez de una segunda
+                                    // animación implícita superpuesta con
+                                    // su propia curva y duración fijas —
+                                    // así el chevron y el panel se mueven
+                                    // exactamente al unísono.
+                                    angle: _expand.value * math.pi,
                                     child: Container(
                                       width: 30,
                                       height: 30,
@@ -413,7 +453,7 @@ class _MapBottomDockState extends State<MapBottomDock>
                                 ),
                         ),
                       ),
-                    if (_expand.value > 0.01) ...[
+                    if (expandClamped > 0.01) ...[
                       SizedBox(
                         height: listH,
                         child: ListView(
