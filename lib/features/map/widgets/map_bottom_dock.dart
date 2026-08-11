@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:rutas_cancun/core/theme/app_colors.dart';
@@ -16,6 +18,8 @@ class MapBottomDock extends StatefulWidget {
     required this.routeColor,
     required this.onRouteTap,
     required this.onShowAll,
+    required this.onHideAll,
+    required this.allRoutesVisible,
     required this.vehicleFilter,
     required this.onVehicleFilterChanged,
     required this.detailFor,
@@ -32,6 +36,8 @@ class MapBottomDock extends StatefulWidget {
   final Color Function(String code, int index) routeColor;
   final ValueChanged<String> onRouteTap;
   final VoidCallback onShowAll;
+  final VoidCallback onHideAll;
+  final bool allRoutesVisible;
   final RouteVehicleType? vehicleFilter;
   final ValueChanged<RouteVehicleType?> onVehicleFilterChanged;
   final RouteDetail? Function(RouteSummary summary) detailFor;
@@ -63,6 +69,9 @@ class _MapBottomDockState extends State<MapBottomDock>
     super.initState();
     _ctrl = AnimationController(
         vsync: this, duration: const Duration(milliseconds: 380));
+    // Curva bezier con sobrepaso (no física real) — es la que ya se sentía
+    // bien: un rebote de "caricatura", suave y con carácter, el mismo tipo
+    // que usan el resto de los paneles/animaciones de la app.
     _expand = CurvedAnimation(parent: _ctrl, curve: AppColors.curveSpring);
   }
 
@@ -92,11 +101,9 @@ class _MapBottomDockState extends State<MapBottomDock>
         (route) => widget.nearbyRouteCodes.contains(route.code),
       );
 
-  bool get _showAllButton =>
-      widget.selectedCode != null ||
-      widget.nearbyFilterActive ||
-      widget.vehicleFilter != null ||
-      widget.navAction == MapNavAction.nightRoutes;
+  // Botón siempre visible: alterna entre mostrar y ocultar todas las
+  // rutas, sin importar si hay un filtro o selección activa.
+  bool get _showToggleButton => true;
 
   List<RouteSummary> get _nearbyRoutes => widget.routes
       .where((r) => widget.nearbyRouteCodes.contains(r.code))
@@ -116,8 +123,12 @@ class _MapBottomDockState extends State<MapBottomDock>
   }
 
   void _setExpanded(bool value) {
-    if (_expanded == value) return;
-    setState(() => _expanded = value);
+    // Antes, si el valor no cambiaba se salía sin animar — un arrastre que
+    // soltaba a medio camino y confirmaba el mismo estado en el que ya
+    // estaba (p. ej. `_expanded` seguía en true) dejaba el panel a medias,
+    // sin terminar de asentarse. Ahora siempre se dispara la animación
+    // hacia el extremo correspondiente.
+    if (_expanded != value) setState(() => _expanded = value);
     value ? _ctrl.forward() : _ctrl.reverse();
   }
 
@@ -242,7 +253,7 @@ class _MapBottomDockState extends State<MapBottomDock>
           builder: (context, _) {
             final listH = _listHeight * _expand.value;
             final totalH = MapBottomDock.headerHeight +
-                (_showAllButton ? MapBottomDock.showAllButtonHeight : 0) +
+                (_showToggleButton ? MapBottomDock.showAllButtonHeight : 0) +
                 listH +
                 (_expand.value > 0.01 ? 1 : 0) +
                 MapBottomDock.navHeight +
@@ -345,10 +356,14 @@ class _MapBottomDockState extends State<MapBottomDock>
                                     iconSize: 21,
                                     visualDensity: VisualDensity.compact,
                                   ),
-                                  AnimatedRotation(
-                                    turns: _expand.value * 0.5,
-                                    duration: const Duration(milliseconds: 380),
-                                    curve: AppColors.curveSpring,
+                                  Transform.rotate(
+                                    // Gira con el mismo valor del resorte
+                                    // frame a frame, en vez de una segunda
+                                    // animación implícita superpuesta con
+                                    // su propia curva y duración fijas —
+                                    // así el chevron y el panel se mueven
+                                    // exactamente al unísono.
+                                    angle: _expand.value * math.pi,
                                     child: Container(
                                       width: 30,
                                       height: 30,
@@ -371,26 +386,44 @@ class _MapBottomDockState extends State<MapBottomDock>
                         ),
                       ),
                     ),
-                    if (_showAllButton)
+                    if (_showToggleButton)
                       SizedBox(
                         height: MapBottomDock.showAllButtonHeight,
                         child: Padding(
                           padding: const EdgeInsets.fromLTRB(12, 4, 12, 6),
-                          child: FilledButton.tonalIcon(
-                            onPressed: widget.onShowAll,
-                            icon: const Icon(Icons.route_rounded, size: 20),
-                            label: const Text('Ver todas las rutas'),
-                            style: FilledButton.styleFrom(
-                              minimumSize: const Size.fromHeight(44),
-                              textStyle: const TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w800,
-                              ),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(14),
-                              ),
-                            ),
-                          ),
+                          child: widget.allRoutesVisible
+                              ? FilledButton.tonalIcon(
+                                  onPressed: widget.onHideAll,
+                                  icon: const Icon(Icons.visibility_off_rounded,
+                                      size: 20),
+                                  label: const Text('Ocultar todas las rutas'),
+                                  style: FilledButton.styleFrom(
+                                    minimumSize: const Size.fromHeight(44),
+                                    textStyle: const TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(14),
+                                    ),
+                                  ),
+                                )
+                              : FilledButton.tonalIcon(
+                                  onPressed: widget.onShowAll,
+                                  icon:
+                                      const Icon(Icons.route_rounded, size: 20),
+                                  label: const Text('Ver todas las rutas'),
+                                  style: FilledButton.styleFrom(
+                                    minimumSize: const Size.fromHeight(44),
+                                    textStyle: const TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(14),
+                                    ),
+                                  ),
+                                ),
                         ),
                       ),
                     if (_expand.value > 0.01) ...[

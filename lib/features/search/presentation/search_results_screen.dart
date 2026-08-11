@@ -327,7 +327,9 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen>
       curve: Curves.easeOutCubic,
       left: 10,
       right: 10,
-      bottom: 10,
+      // Se suma el inset inferior del sistema (gestos/barra de navegación)
+      // para que el panel no quede tapado ni pegado detrás de ella.
+      bottom: 10 + MediaQuery.of(context).padding.bottom,
       height: panelHeight,
       child: Material(
         color: Colors.white.withValues(alpha: 0.97),

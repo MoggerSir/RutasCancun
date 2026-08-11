@@ -20,12 +20,13 @@ import 'package:rutas_cancun/features/map/domain/route_visual_state.dart';
 import 'package:rutas_cancun/features/map/widgets/map_bottom_dock.dart';
 import 'package:rutas_cancun/features/map/widgets/user_location_pulse_marker.dart';
 import 'package:rutas_cancun/features/map/widgets/institutional_map_tiles.dart';
-import 'package:rutas_cancun/features/map/widgets/map_quick_actions.dart';
 import 'package:rutas_cancun/features/map/widgets/route_flow_overlay.dart';
 import 'package:rutas_cancun/features/map/widgets/route_info_sheet.dart';
 import 'package:rutas_cancun/features/map/widgets/route_line_badge.dart';
 import 'package:rutas_cancun/features/map/widgets/route_endpoint_marker.dart';
 import 'package:rutas_cancun/features/map/widgets/route_startup_reveal_overlay.dart';
+import 'package:rutas_cancun/features/donations/presentation/donation_chip.dart';
+import 'package:rutas_cancun/features/donations/presentation/donation_welcome_dialog.dart';
 import 'package:rutas_cancun/features/routes/data/routes_repository.dart';
 import 'package:rutas_cancun/features/routes/domain/route_colors.dart';
 import 'package:rutas_cancun/features/routes/domain/route_service_hours.dart';
@@ -270,6 +271,11 @@ class _PremiumMapBodyState extends ConsumerState<_PremiumMapBody>
         if (mounted) setState(() {});
       });
     });
+    if (kIsWeb) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) showDonationWelcomeDialog(context);
+      });
+    }
   }
 
   void _onFadeTick() {
@@ -619,11 +625,18 @@ class _PremiumMapBodyState extends ConsumerState<_PremiumMapBody>
     );
   }
 
-  double _targetAlphaFor(String code) => opacityForRouteVisual(
-        _visualStateFor(code),
-        showAllFar: _showAllFarRoutes,
-        hasSelection: _selectedCode != null,
-      );
+  double _targetAlphaFor(String code) {
+    // Por defecto (nada seleccionado ni filtrado) el mapa no dibuja ninguna
+    // ruta — se reduce el consumo y evita saturar la pantalla al abrir la
+    // app. Sólo se pinta algo cuando el usuario elige una ruta, un filtro,
+    // o confirma "ver todas las rutas".
+    if (!_anyRoutesVisible) return 0.0;
+    return opacityForRouteVisual(
+      _visualStateFor(code),
+      showAllFar: _showAllFarRoutes,
+      hasSelection: _selectedCode != null,
+    );
+  }
 
   /// Valor de opacidad actualmente en pantalla para [code], interpolado
   /// entre el estado previo y el nuevo mientras corre `_visualFadeCtrl`.
@@ -755,7 +768,47 @@ class _PremiumMapBodyState extends ConsumerState<_PremiumMapBody>
     return (north: north, south: south, east: east, west: west);
   }
 
-  void _showAllRoutes() {
+  /// Hay al menos una ruta visible en el mapa: seleccionada, filtrada por
+  /// cercanía/vehículo/horario nocturno, o mostradas todas explícitamente.
+  /// Fuera de estos casos el mapa no dibuja ninguna ruta.
+  bool get _anyRoutesVisible =>
+      _selectedCode != null ||
+      _nearbyFilterActive ||
+      _vehicleFilter != null ||
+      _navAction == MapNavAction.nightRoutes ||
+      _showAllFarRoutes;
+
+  Future<void> _showAllRoutes() async {
+    final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            icon: const Icon(
+              Icons.warning_amber_rounded,
+              color: Color(0xFFD77900),
+              size: 34,
+            ),
+            title: const Text('Mostrar todas las rutas'),
+            content: const Text(
+              'Dibujar todas las rutas a la vez puede afectar el rendimiento '
+              'y la batería de tu teléfono, sobre todo en equipos más '
+              'antiguos. Puedes seguir buscando una ruta específica sin '
+              'activar esto.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: const Text('Cancelar'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(dialogContext, true),
+                child: const Text('Mostrar de todas formas'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+    if (!confirmed || !mounted) return;
+
     setState(() {
       _selectedCode = null;
       _navAction = null;
@@ -768,6 +821,23 @@ class _PremiumMapBodyState extends ConsumerState<_PremiumMapBody>
       _vehicleFilter = null;
     });
     _scheduleFitBounds();
+  }
+
+  /// Regresa el mapa al estado neutro: sin ninguna ruta pintada. Es el
+  /// estado por defecto al abrir la app (tras la animación de arranque) y
+  /// lo que deja el botón "Ocultar todas las rutas".
+  void _hideAllRoutes() {
+    setState(() {
+      _selectedCode = null;
+      _navAction = null;
+      _filterHint = null;
+      _nightBoundsApplied = false;
+      _nearbyFilterActive = false;
+      _showAllFarRoutes = false;
+      _nearbyFallbackMessage = null;
+      _vehicleFilter = null;
+      _ambiguousCodes = null;
+    });
   }
 
   Future<void> _handleNavAction(MapNavAction action) async {
@@ -1716,6 +1786,13 @@ class _PremiumMapBodyState extends ConsumerState<_PremiumMapBody>
                   ],
                 ),
               ),
+              const SizedBox(height: 10),
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 16),
+                child: Row(
+                  children: [DonationChip()],
+                ),
+              ),
               if (_nearbyFallbackMessage != null)
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
@@ -1726,10 +1803,6 @@ class _PremiumMapBodyState extends ConsumerState<_PremiumMapBody>
                         const TextStyle(fontSize: 11, color: AppColors.accent),
                   ),
                 ),
-              const SizedBox(height: 10),
-              MapQuickActions(
-                onFindNearby: () => _handleNavAction(MapNavAction.nearby),
-              ),
             ],
           ),
         ),
@@ -1745,7 +1818,9 @@ class _PremiumMapBodyState extends ConsumerState<_PremiumMapBody>
           Positioned(
             left: 16,
             right: 16,
-            bottom: 24,
+            // Se suma el inset inferior del sistema para que la barra de
+            // navegación no tape los botones del planificador.
+            bottom: 24 + MediaQuery.of(context).padding.bottom,
             child: _TripPlannerPanel(
               activePoint: _activePlannerPoint,
               onSelectOrigin: () =>
@@ -1781,6 +1856,8 @@ class _PremiumMapBodyState extends ConsumerState<_PremiumMapBody>
               detailFor: _detailFor,
               onRouteTap: _focusRoute,
               onShowAll: _showAllRoutes,
+              onHideAll: _hideAllRoutes,
+              allRoutesVisible: _anyRoutesVisible,
               vehicleFilter: _vehicleFilter,
               onVehicleFilterChanged: _applyVehicleFilter,
               navAction: _navAction,
